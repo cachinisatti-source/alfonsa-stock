@@ -1,0 +1,6 @@
+{
+  "env": {
+    "NEXT_PUBLIC_SUPABASE_URL": "https://bpdqcstslghcejppyccl.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwZHFjc3RzbGdoY2VqcHB5Y2NsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQzOTc2MzYsImV4cCI6MjA2OTk3MzYzNn0.XPeeyLXjn8lz288UKLR8UC1TJNuca4AlU9Rk6r5GxwE"
+  }
+}

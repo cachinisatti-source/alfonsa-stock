@@ -1,39 +1,99 @@
 import { createClient } from "@supabase/supabase-js"
+import { getActiveSupabaseConfig } from "./auto-supabase"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+let supabaseClient: any = null
+let isInitialized = false
 
-// Verificar que las variables de entorno estén configuradas
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("❌ Supabase configuration missing:")
-  console.error("NEXT_PUBLIC_SUPABASE_URL:", supabaseUrl ? "✅ Set" : "❌ Missing")
-  console.error("NEXT_PUBLIC_SUPABASE_ANON_KEY:", supabaseAnonKey ? "✅ Set" : "❌ Missing")
-  throw new Error("Missing Supabase environment variables")
+const initializeSupabase = async () => {
+  if (isInitialized && supabaseClient) {
+    return supabaseClient
+  }
+
+  console.log("🚀 Initializing Supabase...")
+
+  try {
+    const config = await getActiveSupabaseConfig()
+
+    console.log("🔧 Using configuration:", config.name)
+    console.log("📍 URL:", config.url)
+    console.log("🔑 Key:", config.anonKey.substring(0, 50) + "...")
+
+    supabaseClient = createClient(config.url, config.anonKey, {
+      auth: {
+        persistSession: false,
+      },
+      db: {
+        schema: "public",
+      },
+      global: {
+        headers: {
+          "X-Client-Info": "alfonsa-stock-control-auto",
+        },
+      },
+    })
+
+    isInitialized = true
+    console.log("✅ Supabase initialized successfully")
+
+    return supabaseClient
+  } catch (error) {
+    console.error("❌ Failed to initialize Supabase:", error)
+    throw error
+  }
 }
 
-console.log("🔧 Supabase config:")
-console.log("URL:", supabaseUrl)
-console.log("Key:", supabaseAnonKey?.substring(0, 20) + "...")
+// Crear un proxy que inicializa automáticamente
+export const supabase = new Proxy({} as any, {
+  get: (target, prop) => {
+    if (!isInitialized) {
+      // Inicializar de forma asíncrona
+      initializeSupabase().catch(console.error)
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: false, // Deshabilitamos auth por ahora
+      // Mientras tanto, devolver una función que espere la inicialización
+      return async (...args: any[]) => {
+        const client = await initializeSupabase()
+        return client[prop](...args)
+      }
+    }
+
+    return supabaseClient[prop]
   },
 })
 
 // Función para probar la conexión
 export const testConnection = async () => {
   try {
-    const { data, error } = await supabase.from("stock_controls").select("count").limit(1)
-    if (error) {
-      console.error("❌ Supabase connection test failed:", error)
+    console.log("🔍 Testing Supabase connection...")
+
+    const client = await initializeSupabase()
+    const { data, error, status } = await client.from("stock_controls").select("count").limit(1)
+
+    console.log("📊 Connection test result:")
+    console.log("Status:", status)
+    console.log("Data:", data)
+    console.log("Error:", error)
+
+    if (error && error.code !== "PGRST116") {
+      // PGRST116 = table doesn't exist, but connection works
+      console.error("❌ Connection test failed:", error)
       return false
     }
+
     console.log("✅ Supabase connection successful")
     return true
-  } catch (err) {
-    console.error("❌ Supabase connection error:", err)
+  } catch (err: any) {
+    console.error("❌ Connection test error:", err)
     return false
+  }
+}
+
+// Función para obtener estadísticas de conexión
+export const getConnectionInfo = async () => {
+  const client = await initializeSupabase()
+  return {
+    isConnected: isInitialized,
+    configName: (await import("./auto-supabase")).getActiveConfigName(),
+    status: (await import("./auto-supabase")).getConnectionStatus(),
   }
 }
 
