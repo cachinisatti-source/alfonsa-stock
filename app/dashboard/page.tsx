@@ -21,8 +21,17 @@ import {
   Menu,
   RefreshCw,
   Loader2,
+  AlertTriangle,
 } from "lucide-react"
-import { supabase, type StockControlWithItems, type StockItem } from "@/lib/supabase"
+import {
+  initializeStorage,
+  loadControls,
+  createControl,
+  updateItem,
+  deleteControl,
+  subscribeToChanges,
+  type StockControlWithItems,
+} from "@/lib/storage"
 
 type User = {
   id: string
@@ -40,6 +49,7 @@ export default function Dashboard() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [storageStatus, setStorageStatus] = useState<"supabase" | "localStorage" | "loading">("loading")
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser")
@@ -55,59 +65,52 @@ export default function Dashboard() {
       return
     }
 
-    // Cargar controles iniciales
-    loadControls()
+    // Inicializar storage y cargar datos
+    const init = async () => {
+      try {
+        const useSupabase = await initializeStorage()
+        setStorageStatus(useSupabase ? "supabase" : "localStorage")
+        await refreshData()
 
-    // Suscribirse a cambios en tiempo real
-    const controlsSubscription = supabase
-      .channel("stock_controls_changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "stock_controls" }, () => loadControls())
-      .subscribe()
+        // Suscribirse a cambios si usa Supabase
+        const subscription = subscribeToChanges(() => {
+          refreshData()
+        })
 
-    const itemsSubscription = supabase
-      .channel("stock_items_changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "stock_items" }, () => loadControls())
-      .subscribe()
-
-    return () => {
-      controlsSubscription.unsubscribe()
-      itemsSubscription.unsubscribe()
+        return () => {
+          if (subscription) subscription.unsubscribe()
+        }
+      } catch (error) {
+        console.error("Initialization error:", error)
+        setStorageStatus("localStorage")
+        await refreshData()
+      }
     }
+
+    init()
   }, [])
 
-  const loadControls = async () => {
+  const refreshData = async () => {
+    setRefreshing(true)
     try {
-      const { data, error } = await supabase
-        .from("stock_controls")
-        .select(`
-          *,
-          stock_items (*)
-        `)
-        .order("created_at", { ascending: false })
-
-      if (error) throw error
-
-      setStockControls(data || [])
+      const controls = await loadControls()
+      setStockControls(controls)
 
       // Actualizar control actual si existe
       if (currentControl) {
-        const updated = data?.find((c) => c.id === currentControl.id)
+        const updated = controls.find((c) => c.id === currentControl.id)
         if (updated) setCurrentControl(updated)
       }
     } catch (error) {
       console.error("Error loading controls:", error)
+    } finally {
+      setTimeout(() => setRefreshing(false), 500)
     }
   }
 
-  const refreshData = async () => {
-    setRefreshing(true)
-    await loadControls()
-    setTimeout(() => setRefreshing(false), 500)
-  }
-
-  const parseStockText = (text: string): Omit<StockItem, "id" | "control_id" | "created_at" | "updated_at">[] => {
+  const parseStockText = (text: string) => {
     const lines = text.trim().split("\n")
-    const items: Omit<StockItem, "id" | "control_id" | "created_at" | "updated_at">[] = []
+    const items: any[] = []
 
     lines.forEach((line) => {
       if (!line.trim()) return
@@ -144,31 +147,10 @@ export default function Dashboard() {
     setLoading(true)
     try {
       const items = parseStockText(stockText)
-
-      // Crear el control
-      const { data: control, error: controlError } = await supabase
-        .from("stock_controls")
-        .insert({
-          name: controlName,
-          created_by: currentUser.name,
-        })
-        .select()
-        .single()
-
-      if (controlError) throw controlError
-
-      // Crear los items
-      const itemsToInsert = items.map((item) => ({
-        ...item,
-        control_id: control.id,
-      }))
-
-      const { error: itemsError } = await supabase.from("stock_items").insert(itemsToInsert)
-
-      if (itemsError) throw itemsError
+      const newControl = await createControl(controlName, currentUser.name, items)
 
       // Recargar datos
-      await loadControls()
+      await refreshData()
 
       // Limpiar formulario
       setStockText("")
@@ -188,39 +170,31 @@ export default function Dashboard() {
 
     try {
       const numValue = value === "" ? null : Number.parseInt(value) || 0
-      const resultado =
-        numValue !== null
-          ? numValue - (currentControl.stock_items.find((i) => i.id === itemId)?.stock_sistema || 0)
-          : null
+      const item = currentControl.stock_items.find((i) => i.id === itemId)
+      const resultado = numValue !== null && item ? numValue - item.stock_sistema : null
 
-      const { error } = await supabase
-        .from("stock_items")
-        .update({
-          corregido: numValue,
-          resultado: resultado,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", itemId)
+      await updateItem(itemId, {
+        corregido: numValue,
+        resultado: resultado,
+      })
 
-      if (error) throw error
-
-      // Los datos se actualizarán automáticamente por la suscripción
+      // Los datos se actualizarán automáticamente por la suscripción o el próximo refresh
     } catch (error) {
       console.error("Error updating correction:", error)
     }
   }
 
-  const deleteControl = async (controlId: string) => {
+  const handleDeleteControl = async (controlId: string) => {
     if (!confirm("¿Estás seguro de que quieres eliminar este control?")) return
 
     try {
-      const { error } = await supabase.from("stock_controls").delete().eq("id", controlId)
-
-      if (error) throw error
+      await deleteControl(controlId)
 
       if (currentControl?.id === controlId) {
         setCurrentControl(null)
       }
+
+      await refreshData()
     } catch (error) {
       console.error("Error deleting control:", error)
       alert("Error al eliminar el control")
@@ -317,6 +291,24 @@ export default function Dashboard() {
               </p>
             </div>
           </div>
+
+          {/* Storage Status */}
+          {storageStatus !== "loading" && (
+            <div className="flex items-center space-x-2">
+              {storageStatus === "localStorage" && (
+                <div className="flex items-center space-x-1 text-amber-600 bg-amber-50 px-2 py-1 rounded-lg text-xs">
+                  <AlertTriangle className="h-3 w-3" />
+                  <span>Modo Local</span>
+                </div>
+              )}
+              {storageStatus === "supabase" && (
+                <div className="flex items-center space-x-1 text-green-600 bg-green-50 px-2 py-1 rounded-lg text-xs">
+                  <div className="h-2 w-2 bg-green-500 rounded-full"></div>
+                  <span>En Línea</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Mobile menu button */}
           <div className="sm:hidden w-full">
@@ -523,7 +515,7 @@ export default function Dashboard() {
                             size="sm"
                             onClick={(e) => {
                               e.stopPropagation()
-                              deleteControl(control.id)
+                              handleDeleteControl(control.id)
                             }}
                             className="text-red-500 hover:bg-red-50 hover:border-red-200 p-1.5 sm:p-2"
                           >
