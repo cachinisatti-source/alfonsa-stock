@@ -7,17 +7,22 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Upload, Download, Eye, Package, ArrowLeft, Save } from "lucide-react"
-
-type StockItem = {
-  codigo: string
-  denominacion: string
-  stockSistema: number
-  user1?: number
-  user2?: number
-  corregido?: number
-  resultado?: number
-}
+import {
+  Download,
+  Eye,
+  Package,
+  ArrowLeft,
+  Save,
+  Plus,
+  Users,
+  BarChart3,
+  Trash2,
+  ExternalLink,
+  Menu,
+  RefreshCw,
+  Loader2,
+} from "lucide-react"
+import { supabase, type StockControlWithItems, type StockItem } from "@/lib/supabase"
 
 type User = {
   id: string
@@ -25,20 +30,16 @@ type User = {
   role: "lider" | "user1" | "user2"
 }
 
-type StockControl = {
-  id: string
-  name: string
-  createdAt: string
-  items: StockItem[]
-}
-
 export default function Dashboard() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [stockText, setStockText] = useState("")
   const [showResults, setShowResults] = useState(false)
-  const [stockControls, setStockControls] = useState<StockControl[]>([])
-  const [currentControl, setCurrentControl] = useState<StockControl | null>(null)
+  const [stockControls, setStockControls] = useState<StockControlWithItems[]>([])
+  const [currentControl, setCurrentControl] = useState<StockControlWithItems | null>(null)
   const [controlName, setControlName] = useState("")
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser")
@@ -54,40 +55,79 @@ export default function Dashboard() {
       return
     }
 
-    // Cargar controles guardados
-    const savedControls = localStorage.getItem("stockControls")
-    if (savedControls) {
-      const controls = JSON.parse(savedControls)
-      setStockControls(controls)
+    // Cargar controles iniciales
+    loadControls()
+
+    // Suscribirse a cambios en tiempo real
+    const controlsSubscription = supabase
+      .channel("stock_controls_changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_controls" }, () => loadControls())
+      .subscribe()
+
+    const itemsSubscription = supabase
+      .channel("stock_items_changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_items" }, () => loadControls())
+      .subscribe()
+
+    return () => {
+      controlsSubscription.unsubscribe()
+      itemsSubscription.unsubscribe()
     }
   }, [])
 
-  const parseStockText = (text: string): StockItem[] => {
+  const loadControls = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("stock_controls")
+        .select(`
+          *,
+          stock_items (*)
+        `)
+        .order("created_at", { ascending: false })
+
+      if (error) throw error
+
+      setStockControls(data || [])
+
+      // Actualizar control actual si existe
+      if (currentControl) {
+        const updated = data?.find((c) => c.id === currentControl.id)
+        if (updated) setCurrentControl(updated)
+      }
+    } catch (error) {
+      console.error("Error loading controls:", error)
+    }
+  }
+
+  const refreshData = async () => {
+    setRefreshing(true)
+    await loadControls()
+    setTimeout(() => setRefreshing(false), 500)
+  }
+
+  const parseStockText = (text: string): Omit<StockItem, "id" | "control_id" | "created_at" | "updated_at">[] => {
     const lines = text.trim().split("\n")
-    const items: StockItem[] = []
+    const items: Omit<StockItem, "id" | "control_id" | "created_at" | "updated_at">[] = []
 
     lines.forEach((line) => {
       if (!line.trim()) return
 
-      // Buscar el patrón: código + espacios + denominación + posible stock al final
       const match = line.match(/^(\d+)\s+(.+?)(\d+)?\s*$/)
 
       if (match) {
         const codigo = match[1]
         let denominacion = match[2].trim()
-        let stockSistema = 0
+        let stock_sistema = 0
 
-        // Si hay un número al final, es el stock
         if (match[3]) {
-          stockSistema = Number.parseInt(match[3])
-          // Remover el número del final de la denominación si está ahí
+          stock_sistema = Number.parseInt(match[3])
           denominacion = denominacion.replace(/\s+\d+\s*$/, "").trim()
         }
 
         items.push({
           codigo,
           denominacion,
-          stockSistema,
+          stock_sistema,
         })
       }
     })
@@ -95,76 +135,154 @@ export default function Dashboard() {
     return items
   }
 
-  const handleProcessStock = () => {
-    if (!controlName.trim()) {
+  const handleProcessStock = async () => {
+    if (!controlName.trim() || !currentUser) {
       alert("Por favor ingresa un nombre para el control de stock")
       return
     }
 
-    const items = parseStockText(stockText)
-    const newControl: StockControl = {
-      id: `control_${Date.now()}`,
-      name: controlName,
-      createdAt: new Date().toISOString(),
-      items: items,
-    }
+    setLoading(true)
+    try {
+      const items = parseStockText(stockText)
 
-    const updatedControls = [...stockControls, newControl]
-    setStockControls(updatedControls)
-    setCurrentControl(newControl)
-    localStorage.setItem("stockControls", JSON.stringify(updatedControls))
-    setStockText("")
-    setControlName("")
+      // Crear el control
+      const { data: control, error: controlError } = await supabase
+        .from("stock_controls")
+        .insert({
+          name: controlName,
+          created_by: currentUser.name,
+        })
+        .select()
+        .single()
+
+      if (controlError) throw controlError
+
+      // Crear los items
+      const itemsToInsert = items.map((item) => ({
+        ...item,
+        control_id: control.id,
+      }))
+
+      const { error: itemsError } = await supabase.from("stock_items").insert(itemsToInsert)
+
+      if (itemsError) throw itemsError
+
+      // Recargar datos
+      await loadControls()
+
+      // Limpiar formulario
+      setStockText("")
+      setControlName("")
+
+      alert("Control de stock creado exitosamente")
+    } catch (error) {
+      console.error("Error creating control:", error)
+      alert("Error al crear el control de stock")
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const handleCorrectionChange = (index: number, value: string) => {
+  const handleCorrectionChange = async (itemId: string, value: string) => {
     if (!currentControl) return
 
-    const newItems = [...currentControl.items]
-    const numValue = value === "" ? undefined : Number.parseInt(value) || 0
-    newItems[index].corregido = numValue
+    try {
+      const numValue = value === "" ? null : Number.parseInt(value) || 0
+      const resultado =
+        numValue !== null
+          ? numValue - (currentControl.stock_items.find((i) => i.id === itemId)?.stock_sistema || 0)
+          : null
 
-    // Calcular resultado si hay corrección
-    if (numValue !== undefined) {
-      newItems[index].resultado = numValue - newItems[index].stockSistema
-    } else {
-      newItems[index].resultado = undefined
+      const { error } = await supabase
+        .from("stock_items")
+        .update({
+          corregido: numValue,
+          resultado: resultado,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", itemId)
+
+      if (error) throw error
+
+      // Los datos se actualizarán automáticamente por la suscripción
+    } catch (error) {
+      console.error("Error updating correction:", error)
     }
+  }
 
-    const updatedControl: StockControl = { ...currentControl, items: newItems }
-    const updatedControls = stockControls.map((control) =>
-      control.id === currentControl.id ? updatedControl : control,
-    )
+  const deleteControl = async (controlId: string) => {
+    if (!confirm("¿Estás seguro de que quieres eliminar este control?")) return
 
-    setStockControls(updatedControls)
-    setCurrentControl(updatedControl)
-    localStorage.setItem("stockControls", JSON.stringify(updatedControls))
+    try {
+      const { error } = await supabase.from("stock_controls").delete().eq("id", controlId)
+
+      if (error) throw error
+
+      if (currentControl?.id === controlId) {
+        setCurrentControl(null)
+      }
+    } catch (error) {
+      console.error("Error deleting control:", error)
+      alert("Error al eliminar el control")
+    }
   }
 
   const exportToCSV = () => {
     if (!currentControl) return
 
-    const headers = ["Código", "Denominación", "Stock Sistema", "Usuario 1", "Usuario 2", "Corregido", "Resultado"]
-    const csvContent = [
-      headers.join(","),
-      ...currentControl.items.map((item) =>
-        [
-          item.codigo,
-          `"${item.denominacion}"`,
-          item.stockSistema,
-          item.user1 || "",
-          item.user2 || "",
-          item.corregido || "",
-          item.resultado || "",
-        ].join(","),
-      ),
-    ].join("\n")
+    const headers = ["Código", "Denominación", "Stock Sistema", "Usuario 1", "Usuario 2", "Corregido"]
+    if (showResults) {
+      headers.push("Resultado")
+    }
 
+    const csvRows = []
+    csvRows.push(headers.join(","))
+
+    currentControl.stock_items.forEach((item) => {
+      const row = []
+      row.push(item.codigo)
+      row.push(`"${item.denominacion}"`)
+      row.push(item.stock_sistema.toString())
+
+      if (item.user1_value !== undefined && item.user1_value !== null) {
+        row.push(item.user1_value.toString())
+      } else {
+        row.push("Pendiente")
+      }
+
+      if (item.user2_value !== undefined && item.user2_value !== null) {
+        row.push(item.user2_value.toString())
+      } else {
+        row.push("Pendiente")
+      }
+
+      if (item.corregido !== undefined && item.corregido !== null) {
+        row.push(item.corregido.toString())
+      } else {
+        row.push("")
+      }
+
+      if (showResults) {
+        if (item.resultado !== undefined && item.resultado !== null) {
+          if (item.resultado > 0) {
+            row.push(`+${item.resultado}`)
+          } else {
+            row.push(item.resultado.toString())
+          }
+        } else {
+          row.push("")
+        }
+      }
+
+      csvRows.push(row.join(","))
+    })
+
+    const csvContent = csvRows.join("\n")
     const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" })
     const link = document.createElement("a")
     const url = URL.createObjectURL(blob)
     link.setAttribute("href", url)
-    link.setAttribute("download", `stock_control_${new Date().toISOString().split("T")[0]}.csv`)
+    link.setAttribute("download", `stock_control_${currentControl.name}_${new Date().toISOString().split("T")[0]}.csv`)
     link.style.visibility = "hidden"
     document.body.appendChild(link)
     link.click()
@@ -176,171 +294,397 @@ export default function Dashboard() {
     window.location.href = "/"
   }
 
+  const goToMainSite = () => {
+    window.open("https://pedidos-alfonsa-dist.vercel.app/", "_blank")
+  }
+
   if (!currentUser) return <div>Cargando...</div>
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-6xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <Package className="h-8 w-8 text-blue-600" />
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-amber-50">
+      <div className="max-w-7xl mx-auto p-3 sm:p-6 space-y-4 sm:space-y-8">
+        {/* Header - Responsive */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-lg border border-orange-200 space-y-4 sm:space-y-0">
+          <div className="flex items-center space-x-3 sm:space-x-4">
+            <div className="p-2 sm:p-3 bg-gradient-to-r from-[#E47C00] to-orange-600 rounded-lg sm:rounded-xl shadow-lg">
+              <Package className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
+            </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Panel de Control - Líder</h1>
-              <p className="text-gray-600">Bienvenido, {currentUser.name}</p>
+              <h1 className="text-xl sm:text-3xl font-bold text-slate-800">Panel de Control</h1>
+              <p className="text-sm sm:text-base text-slate-600 flex items-center">
+                <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                Bienvenido, {currentUser.name}
+              </p>
             </div>
           </div>
-          <Button variant="outline" onClick={logout}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Salir
-          </Button>
+
+          {/* Mobile menu button */}
+          <div className="sm:hidden w-full">
+            <Button
+              variant="outline"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="w-full justify-center"
+            >
+              <Menu className="h-4 w-4 mr-2" />
+              Menú
+            </Button>
+          </div>
+
+          {/* Desktop buttons */}
+          <div className="hidden sm:flex items-center space-x-3">
+            <Button
+              variant="outline"
+              onClick={refreshData}
+              disabled={refreshing}
+              className="hover:bg-[#E47C00]/10 hover:border-[#E47C00]/30 hover:text-[#E47C00] transition-colors bg-transparent"
+            >
+              {refreshing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+              Actualizar
+            </Button>
+            <Button
+              variant="outline"
+              onClick={goToMainSite}
+              className="hover:bg-[#E47C00]/10 hover:border-[#E47C00]/30 hover:text-[#E47C00] transition-colors bg-transparent"
+            >
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Sitio Principal
+            </Button>
+            <Button
+              variant="outline"
+              onClick={logout}
+              className="hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors bg-transparent"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Cerrar Sesión
+            </Button>
+          </div>
+
+          {/* Mobile menu */}
+          {mobileMenuOpen && (
+            <div className="sm:hidden w-full space-y-2 pt-4 border-t border-orange-200">
+              <Button
+                variant="outline"
+                onClick={refreshData}
+                disabled={refreshing}
+                className="w-full justify-start hover:bg-[#E47C00]/10 hover:border-[#E47C00]/30 hover:text-[#E47C00] transition-colors bg-transparent"
+              >
+                {refreshing ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Actualizar
+              </Button>
+              <Button
+                variant="outline"
+                onClick={goToMainSite}
+                className="w-full justify-start hover:bg-[#E47C00]/10 hover:border-[#E47C00]/30 hover:text-[#E47C00] transition-colors bg-transparent"
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Sitio Principal
+              </Button>
+              <Button
+                variant="outline"
+                onClick={logout}
+                className="w-full justify-start hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors bg-transparent"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Cerrar Sesión
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* Upload Stock */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Upload className="h-5 w-5" />
+        {/* Crear nuevo control - Responsive */}
+        <Card className="shadow-lg border-0 bg-gradient-to-r from-orange-50 to-amber-50">
+          <CardHeader className="bg-gradient-to-r from-[#E47C00] to-orange-600 text-white rounded-t-lg p-4 sm:p-6">
+            <CardTitle className="flex items-center space-x-2 text-lg sm:text-xl">
+              <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
               <span>Crear Nuevo Control de Stock</span>
             </CardTitle>
-            <CardDescription>Crea un nuevo control de stock desde el sistema Husky</CardDescription>
+            <CardDescription className="text-orange-100 text-sm sm:text-base">
+              Importa datos desde el sistema Husky y crea un nuevo control
+            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-6">
             <div>
-              <Label htmlFor="control-name">Nombre del Control</Label>
+              <Label htmlFor="control-name" className="text-slate-700 font-semibold text-sm sm:text-base">
+                Nombre del Control
+              </Label>
               <Input
                 id="control-name"
                 placeholder="Ej: Control Stock Licores, Control Stock Cervezas..."
                 value={controlName}
                 onChange={(e) => setControlName(e.target.value)}
+                className="mt-2 border-orange-300 focus:border-[#E47C00] focus:ring-[#E47C00]/20 text-sm sm:text-base"
               />
             </div>
-            <Textarea
-              placeholder="265             AMARULA 375CC CHICOOO                       
+            <div>
+              <Label className="text-slate-700 font-semibold text-sm sm:text-base">Datos desde Husky</Label>
+              <Textarea
+                placeholder="265             AMARULA 375CC CHICOOO                       
 266             AMARULA 750CC                               
 8194            AMARULA CREAM ETHIOPIAN COFFE 750           
 25              ANIS 8 HERMANOS LITRO                       60
 275             BEZIER CREMA DE CASSIS                      12"
-              value={stockText}
-              onChange={(e) => setStockText(e.target.value)}
-              rows={8}
-              className="font-mono text-sm"
-            />
-            <Button onClick={handleProcessStock} disabled={!stockText.trim() || !controlName.trim()}>
-              <Save className="h-4 w-4 mr-2" />
-              Crear Control de Stock
+                value={stockText}
+                onChange={(e) => setStockText(e.target.value)}
+                rows={6}
+                className="mt-2 font-mono text-xs sm:text-sm border-orange-300 focus:border-[#E47C00] focus:ring-[#E47C00]/20"
+              />
+            </div>
+            <Button
+              onClick={handleProcessStock}
+              disabled={!stockText.trim() || !controlName.trim() || loading}
+              className="w-full bg-gradient-to-r from-[#E47C00] to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-semibold py-2 sm:py-3 shadow-lg text-sm sm:text-base"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creando...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Crear Control de Stock
+                </>
+              )}
             </Button>
           </CardContent>
         </Card>
 
-        {/* Lista de Controles */}
+        {/* Lista de controles - Responsive */}
         {stockControls.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Controles de Stock Creados</CardTitle>
-              <CardDescription>{stockControls.length} controles disponibles</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {stockControls.map((control) => (
-                  <Card
-                    key={control.id}
-                    className={`cursor-pointer transition-all hover:shadow-md ${
-                      currentControl?.id === control.id ? "border-blue-500 bg-blue-50" : ""
-                    }`}
-                    onClick={() => setCurrentControl(control)}
+          <Card className="shadow-lg border-0">
+            <CardHeader className="bg-gradient-to-r from-[#E47C00] to-orange-600 text-white rounded-t-lg p-4 sm:p-6">
+              <CardTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-2 sm:space-y-0">
+                <div className="flex items-center space-x-2">
+                  <Users className="h-4 w-4 sm:h-5 sm:w-5" />
+                  <span className="text-lg sm:text-xl">Controles de Stock Activos</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Badge variant="secondary" className="bg-white/20 text-white text-sm">
+                    {stockControls.length} controles
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={refreshData}
+                    disabled={refreshing}
+                    className="bg-white/10 border-white/20 text-white hover:bg-white/20"
                   >
-                    <CardContent className="p-4">
-                      <h3 className="font-semibold text-lg">{control.name}</h3>
-                      <p className="text-sm text-gray-600">{control.items.length} productos</p>
-                      <p className="text-xs text-gray-500">{new Date(control.createdAt).toLocaleDateString()}</p>
-                    </CardContent>
-                  </Card>
-                ))}
+                    {refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  </Button>
+                </div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 sm:p-6">
+              <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                {stockControls.map((control) => {
+                  const user1Progress = control.stock_items.filter(
+                    (item) => item.user1_value !== null && item.user1_value !== undefined,
+                  ).length
+                  const user2Progress = control.stock_items.filter(
+                    (item) => item.user2_value !== null && item.user2_value !== undefined,
+                  ).length
+                  const totalItems = control.stock_items.length
+
+                  return (
+                    <Card
+                      key={control.id}
+                      className={`cursor-pointer transition-all duration-300 hover:shadow-xl hover:scale-105 border-2 ${
+                        currentControl?.id === control.id
+                          ? "border-[#E47C00] bg-orange-50 shadow-lg"
+                          : "border-orange-200 hover:border-[#E47C00]/50"
+                      }`}
+                      onClick={() => setCurrentControl(control)}
+                    >
+                      <CardContent className="p-4 sm:p-6">
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-bold text-base sm:text-lg text-slate-800 mb-2 truncate">
+                              {control.name}
+                            </h3>
+                            <p className="text-xs sm:text-sm text-slate-600 mb-1">
+                              {control.stock_items.length} productos
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {new Date(control.created_at).toLocaleDateString("es-ES", {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              deleteControl(control.id)
+                            }}
+                            className="text-red-500 hover:bg-red-50 hover:border-red-200 p-1.5 sm:p-2"
+                          >
+                            <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                          </Button>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs sm:text-sm font-medium text-slate-700">Usuario 1</span>
+                            <Badge
+                              variant={user1Progress === totalItems ? "default" : "outline"}
+                              className={`text-xs ${user1Progress === totalItems ? "bg-[#E47C00]" : ""}`}
+                            >
+                              {user1Progress}/{totalItems}
+                            </Badge>
+                          </div>
+                          <div className="w-full bg-orange-200 rounded-full h-1.5 sm:h-2">
+                            <div
+                              className="bg-gradient-to-r from-[#E47C00] to-orange-600 h-1.5 sm:h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${totalItems > 0 ? (user1Progress / totalItems) * 100 : 0}%` }}
+                            />
+                          </div>
+
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs sm:text-sm font-medium text-slate-700">Usuario 2</span>
+                            <Badge
+                              variant={user2Progress === totalItems ? "default" : "outline"}
+                              className={`text-xs ${user2Progress === totalItems ? "bg-amber-600" : ""}`}
+                            >
+                              {user2Progress}/{totalItems}
+                            </Badge>
+                          </div>
+                          <div className="w-full bg-amber-200 rounded-full h-1.5 sm:h-2">
+                            <div
+                              className="bg-gradient-to-r from-amber-500 to-amber-600 h-1.5 sm:h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${totalItems > 0 ? (user2Progress / totalItems) * 100 : 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Stock Items */}
+        {/* Tabla de productos - Responsive */}
         {currentControl && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
+          <Card className="shadow-lg border-0">
+            <CardHeader className="bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-t-lg p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-3 sm:space-y-0">
                 <div>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Eye className="h-5 w-5" />
-                    <span>{currentControl.name}</span>
+                  <CardTitle className="flex items-center space-x-2 text-lg sm:text-xl">
+                    <Eye className="h-4 w-4 sm:h-5 sm:w-5" />
+                    <span className="truncate">{currentControl.name}</span>
                   </CardTitle>
-                  <CardDescription>{currentControl.items.length} productos</CardDescription>
+                  <CardDescription className="text-slate-300 text-sm">
+                    {currentControl.stock_items.length} productos • Creado el{" "}
+                    {new Date(currentControl.created_at).toLocaleDateString("es-ES")}
+                  </CardDescription>
                 </div>
-                <div className="flex space-x-2">
-                  <Button variant="outline" onClick={() => setShowResults(!showResults)}>
+                <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowResults(!showResults)}
+                    className="bg-white/10 border-white/20 text-white hover:bg-white/20 text-sm"
+                  >
                     {showResults ? "Ocultar" : "Ver"} Resultados
                   </Button>
-                  <Button onClick={exportToCSV}>
+                  <Button onClick={exportToCSV} className="bg-[#E47C00] hover:bg-orange-600 text-white text-sm">
                     <Download className="h-4 w-4 mr-2" />
                     Exportar CSV
                   </Button>
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse border border-gray-300">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="border border-gray-300 p-2 text-left">Código</th>
-                      <th className="border border-gray-300 p-2 text-left">Denominación</th>
-                      <th className="border border-gray-300 p-2 text-center">Stock Sistema</th>
-                      <th className="border border-gray-300 p-2 text-center">Usuario 1</th>
-                      <th className="border border-gray-300 p-2 text-center">Usuario 2</th>
-                      <th className="border border-gray-300 p-2 text-center">Corregido</th>
-                      {showResults && <th className="border border-gray-300 p-2 text-center">Resultado</th>}
+                <table className="w-full min-w-[800px]">
+                  <thead className="bg-orange-50 border-b">
+                    <tr>
+                      <th className="text-left p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">Código</th>
+                      <th className="text-left p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
+                        Denominación
+                      </th>
+                      <th className="text-center p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
+                        Stock Sistema
+                      </th>
+                      <th className="text-center p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
+                        Usuario 1
+                      </th>
+                      <th className="text-center p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
+                        Usuario 2
+                      </th>
+                      <th className="text-center p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
+                        Corregido
+                      </th>
+                      {showResults && (
+                        <th className="text-center p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
+                          Resultado
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    {currentControl.items.map((item, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="border border-gray-300 p-2 font-mono">{item.codigo}</td>
-                        <td className="border border-gray-300 p-2">{item.denominacion}</td>
-                        <td className="border border-gray-300 p-2 text-center font-semibold">{item.stockSistema}</td>
-                        <td className="border border-gray-300 p-2 text-center">
-                          {item.user1 !== undefined ? (
-                            <Badge variant="outline">{item.user1}</Badge>
+                    {currentControl.stock_items.map((item) => (
+                      <tr key={item.id} className="border-b hover:bg-orange-50 transition-colors">
+                        <td className="p-2 sm:p-4 font-mono font-semibold text-[#E47C00] text-xs sm:text-base">
+                          {item.codigo}
+                        </td>
+                        <td className="p-2 sm:p-4 font-medium text-slate-800 text-xs sm:text-sm">
+                          {item.denominacion}
+                        </td>
+                        <td className="p-2 sm:p-4 text-center">
+                          <Badge variant="outline" className="font-semibold border-[#E47C00] text-[#E47C00] text-xs">
+                            {item.stock_sistema}
+                          </Badge>
+                        </td>
+                        <td className="p-2 sm:p-4 text-center">
+                          {item.user1_value !== undefined && item.user1_value !== null ? (
+                            <Badge className="bg-[#E47C00]/10 text-[#E47C00] border-[#E47C00]/30 text-xs">
+                              {item.user1_value}
+                            </Badge>
                           ) : (
-                            <span className="text-gray-400">-</span>
+                            <span className="text-slate-400 text-xs">Pendiente</span>
                           )}
                         </td>
-                        <td className="border border-gray-300 p-2 text-center">
-                          {item.user2 !== undefined ? (
-                            <Badge variant="outline">{item.user2}</Badge>
+                        <td className="p-2 sm:p-4 text-center">
+                          {item.user2_value !== undefined && item.user2_value !== null ? (
+                            <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-xs">
+                              {item.user2_value}
+                            </Badge>
                           ) : (
-                            <span className="text-gray-400">-</span>
+                            <span className="text-slate-400 text-xs">Pendiente</span>
                           )}
                         </td>
-                        <td className="border border-gray-300 p-2 text-center">
+                        <td className="p-2 sm:p-4 text-center">
                           <Input
                             type="number"
                             min="0"
                             value={item.corregido || ""}
-                            onChange={(e) => handleCorrectionChange(index, e.target.value)}
-                            className="w-20 text-center"
+                            onChange={(e) => handleCorrectionChange(item.id, e.target.value)}
+                            className="w-16 sm:w-24 text-center border-orange-300 focus:border-[#E47C00] text-xs sm:text-sm h-8 sm:h-10"
                             placeholder="0"
                           />
                         </td>
                         {showResults && (
-                          <td className="border border-gray-300 p-2 text-center">
-                            {item.resultado !== undefined && (
+                          <td className="p-2 sm:p-4 text-center">
+                            {item.resultado !== undefined && item.resultado !== null && (
                               <Badge
-                                variant={item.resultado === 0 ? "outline" : "default"}
-                                className={
+                                variant="outline"
+                                className={`text-xs ${
                                   item.resultado > 0
                                     ? "bg-green-100 text-green-800 border-green-300"
                                     : item.resultado < 0
                                       ? "bg-red-100 text-red-800 border-red-300"
-                                      : ""
-                                }
+                                      : "bg-slate-100 text-slate-800 border-slate-300"
+                                }`}
                               >
                                 {item.resultado > 0 ? "+" : ""}
                                 {item.resultado}
