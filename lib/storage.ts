@@ -1,4 +1,11 @@
-import { supabase, testConnection, getConnectionInfo, type StockControlWithItems, type StockItem } from "./supabase"
+import {
+  supabase,
+  testConnection,
+  getConnectionInfo,
+  getSupabaseClient,
+  type StockControlWithItems,
+  type StockItem,
+} from "./supabase"
 
 // Sistema de almacenamiento híbrido automático
 let useSupabase = true
@@ -37,7 +44,7 @@ export const initializeStorage = async () => {
 }
 
 // Auto-retry para operaciones de Supabase
-const withRetry = async (operation, maxRetries = 3) => {
+const withRetry = async (operation: () => Promise<any>, maxRetries = 3) => {
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await operation()
@@ -55,7 +62,7 @@ const withRetry = async (operation, maxRetries = 3) => {
   throw new Error("Max retries exceeded")
 }
 
-export const loadControls = async () => {
+export const loadControls = async (): Promise<StockControlWithItems[]> => {
   await initializeStorage()
 
   if (useSupabase) {
@@ -63,8 +70,8 @@ export const loadControls = async () => {
       console.log("📥 Loading controls from Supabase...")
 
       const result = await withRetry(async () => {
-        const { data, error } = await supabase
-          .from("stock_controls")
+        const table = await supabase.from("stock_controls")
+        const { data, error } = await table
           .select(`
             *,
             stock_items (*)
@@ -89,7 +96,7 @@ export const loadControls = async () => {
   if (saved) {
     try {
       const controls = JSON.parse(saved)
-      const converted = controls.map((control) => ({
+      const converted = controls.map((control: any) => ({
         ...control,
         stock_items: control.items || control.stock_items || [],
       }))
@@ -116,8 +123,8 @@ export const createControl = async (
 
       const result = await withRetry(async () => {
         // Crear el control
-        const { data: control, error: controlError } = await supabase
-          .from("stock_controls")
+        const controlsTable = await supabase.from("stock_controls")
+        const { data: control, error: controlError } = await controlsTable
           .insert({ name, created_by: createdBy })
           .select()
           .single()
@@ -130,10 +137,8 @@ export const createControl = async (
           control_id: control.id,
         }))
 
-        const { data: stockItems, error: itemsError } = await supabase
-          .from("stock_items")
-          .insert(itemsToInsert)
-          .select()
+        const itemsTable = await supabase.from("stock_items")
+        const { data: stockItems, error: itemsError } = await itemsTable.insert(itemsToInsert).select()
 
         if (itemsError) throw itemsError
 
@@ -182,8 +187,8 @@ export const updateItem = async (itemId: string, updates: Partial<StockItem>): P
   if (useSupabase) {
     try {
       await withRetry(async () => {
-        const { error } = await supabase
-          .from("stock_items")
+        const table = await supabase.from("stock_items")
+        const { error } = await table
           .update({
             ...updates,
             updated_at: new Date().toISOString(),
@@ -220,7 +225,8 @@ export const deleteControl = async (controlId: string): Promise<void> => {
   if (useSupabase) {
     try {
       await withRetry(async () => {
-        const { error } = await supabase.from("stock_controls").delete().eq("id", controlId)
+        const table = await supabase.from("stock_controls")
+        const { error } = await table.delete().eq("id", controlId)
         if (error) throw error
       })
 
@@ -247,21 +253,48 @@ export const subscribeToChanges = (callback: () => void) => {
 
   console.log("📡 Setting up real-time subscriptions...")
 
-  const subscription = supabase
-    .channel("stock_changes")
-    .on("postgres_changes", { event: "*", schema: "public", table: "stock_controls" }, (payload) => {
-      console.log("🔄 Stock control changed:", payload)
-      callback()
+  // Usar el cliente de Supabase de forma asíncrona
+  const setupSubscription = async () => {
+    try {
+      const client = await getSupabaseClient()
+      const channel = client.channel("stock_changes")
+
+      return channel
+        .on("postgres_changes", { event: "*", schema: "public", table: "stock_controls" }, (payload: any) => {
+          console.log("🔄 Stock control changed:", payload)
+          callback()
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "stock_items" }, (payload: any) => {
+          console.log("🔄 Stock item changed:", payload)
+          callback()
+        })
+        .subscribe((status: string) => {
+          console.log("📡 Subscription status:", status)
+        })
+    } catch (error) {
+      console.error("❌ Failed to setup subscription:", error)
+      return null
+    }
+  }
+
+  // Setup subscription asynchronously
+  let subscription: any = null
+  setupSubscription()
+    .then((sub) => {
+      subscription = sub
     })
-    .on("postgres_changes", { event: "*", schema: "public", table: "stock_items" }, (payload) => {
-      console.log("🔄 Stock item changed:", payload)
-      callback()
-    })
-    .subscribe((status) => {
-      console.log("📡 Subscription status:", status)
+    .catch((error) => {
+      console.error("❌ Subscription setup failed:", error)
     })
 
-  return subscription
+  return {
+    unsubscribe: () => {
+      if (subscription) {
+        subscription.unsubscribe()
+        console.log("📡 Subscription unsubscribed")
+      }
+    },
+  }
 }
 
 export const getStorageStatus = async () => {

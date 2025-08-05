@@ -18,7 +18,7 @@ import {
   Save,
   Loader2,
 } from "lucide-react"
-import { supabase, type StockControlWithItems } from "@/lib/supabase"
+import { loadControls, updateItem, subscribeToChanges, type StockControlWithItems } from "@/lib/storage"
 
 type UserRole = "lider" | "user1" | "user2"
 
@@ -33,18 +33,9 @@ export default function VerificationPage() {
   const [saving, setSaving] = useState<string | null>(null)
 
   // Memoized function to load controls
-  const loadControls = useCallback(async () => {
+  const loadControlsData = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from("stock_controls")
-        .select(`
-          *,
-          stock_items (*)
-        `)
-        .order("created_at", { ascending: false })
-
-      if (error) throw error
-
+      const data = await loadControls()
       setStockControls(data || [])
       setLastUpdate(new Date())
 
@@ -82,18 +73,17 @@ export default function VerificationPage() {
     }
 
     // Initial load of controls
-    loadControls()
+    loadControlsData()
 
     // Suscribirse a cambios en tiempo real
-    const subscription = supabase
-      .channel("stock_items_verification")
-      .on("postgres_changes", { event: "*", schema: "public", table: "stock_items" }, () => loadControls())
-      .subscribe()
+    const subscription = subscribeToChanges(() => loadControlsData())
 
     return () => {
-      subscription.unsubscribe()
+      if (subscription) {
+        subscription.unsubscribe()
+      }
     }
-  }, [loadControls])
+  }, [loadControlsData])
 
   const handleInputChange = (itemId: string, value: string) => {
     setUserInputs((prev) => ({
@@ -110,15 +100,10 @@ export default function VerificationPage() {
       const value = Number.parseInt(userInputs[itemId]) || 0
       const field = currentUser.role === "user1" ? "user1_value" : "user2_value"
 
-      const { error } = await supabase
-        .from("stock_items")
-        .update({
-          [field]: value,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", itemId)
-
-      if (error) throw error
+      await updateItem(itemId, {
+        [field]: value,
+        updated_at: new Date().toISOString(),
+      })
 
       // Clear input after saving
       setUserInputs((prev) => ({
@@ -135,7 +120,7 @@ export default function VerificationPage() {
 
   const refreshData = async () => {
     setRefreshing(true)
-    await loadControls()
+    await loadControlsData()
     setTimeout(() => setRefreshing(false), 500)
   }
 

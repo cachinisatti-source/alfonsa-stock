@@ -2,63 +2,77 @@ import { createClient } from "@supabase/supabase-js"
 import { getActiveSupabaseConfig } from "./auto-supabase"
 
 let supabaseClient: any = null
-let isInitialized = false
+let initializationPromise: Promise<any> | null = null
 
 const initializeSupabase = async () => {
-  if (isInitialized && supabaseClient) {
+  // Si ya está inicializando, esperar a que termine
+  if (initializationPromise) {
+    return initializationPromise
+  }
+
+  // Si ya está inicializado, devolverlo
+  if (supabaseClient) {
     return supabaseClient
   }
 
   console.log("🚀 Initializing Supabase...")
 
-  try {
-    const config = await getActiveSupabaseConfig()
+  initializationPromise = (async () => {
+    try {
+      const config = await getActiveSupabaseConfig()
 
-    console.log("🔧 Using configuration:", config.name)
-    console.log("📍 URL:", config.url)
-    console.log("🔑 Key:", config.anonKey.substring(0, 50) + "...")
+      console.log("🔧 Using configuration:", config.name)
+      console.log("📍 URL:", config.url)
+      console.log("🔑 Key:", config.anonKey.substring(0, 50) + "...")
 
-    supabaseClient = createClient(config.url, config.anonKey, {
-      auth: {
-        persistSession: false,
-      },
-      db: {
-        schema: "public",
-      },
-      global: {
-        headers: {
-          "X-Client-Info": "alfonsa-stock-control-auto",
+      supabaseClient = createClient(config.url, config.anonKey, {
+        auth: {
+          persistSession: false,
         },
-      },
-    })
+        db: {
+          schema: "public",
+        },
+        global: {
+          headers: {
+            "X-Client-Info": "alfonsa-stock-control-auto",
+          },
+        },
+      })
 
-    isInitialized = true
-    console.log("✅ Supabase initialized successfully")
+      console.log("✅ Supabase initialized successfully")
+      return supabaseClient
+    } catch (error) {
+      console.error("❌ Failed to initialize Supabase:", error)
+      initializationPromise = null // Reset para permitir reintentos
+      throw error
+    }
+  })()
 
-    return supabaseClient
-  } catch (error) {
-    console.error("❌ Failed to initialize Supabase:", error)
-    throw error
-  }
+  return initializationPromise
 }
 
-// Crear un proxy que inicializa automáticamente
-export const supabase = new Proxy({} as any, {
-  get: (target, prop) => {
-    if (!isInitialized) {
-      // Inicializar de forma asíncrona
-      initializeSupabase().catch(console.error)
+// Función para obtener el cliente inicializado
+export const getSupabaseClient = async () => {
+  return await initializeSupabase()
+}
 
-      // Mientras tanto, devolver una función que espere la inicialización
-      return async (...args: any[]) => {
-        const client = await initializeSupabase()
-        return client[prop](...args)
-      }
-    }
-
-    return supabaseClient[prop]
+// Export directo del cliente (se inicializa automáticamente)
+export const supabase = {
+  from: async (table: string) => {
+    const client = await initializeSupabase()
+    return client.from(table)
   },
-})
+  channel: (name: string) => {
+    // Return a promise that resolves to the channel
+    return initializeSupabase().then((client) => client.channel(name))
+  },
+  auth: {
+    getUser: async () => {
+      const client = await initializeSupabase()
+      return client.auth.getUser()
+    },
+  },
+}
 
 // Función para probar la conexión
 export const testConnection = async () => {
@@ -89,11 +103,20 @@ export const testConnection = async () => {
 
 // Función para obtener estadísticas de conexión
 export const getConnectionInfo = async () => {
-  const client = await initializeSupabase()
-  return {
-    isConnected: isInitialized,
-    configName: (await import("./auto-supabase")).getActiveConfigName(),
-    status: (await import("./auto-supabase")).getConnectionStatus(),
+  try {
+    await initializeSupabase()
+    const { getActiveConfigName, getConnectionStatus } = await import("./auto-supabase")
+    return {
+      isConnected: !!supabaseClient,
+      configName: getActiveConfigName(),
+      status: getConnectionStatus(),
+    }
+  } catch (error) {
+    return {
+      isConnected: false,
+      configName: "Error",
+      status: "error",
+    }
   }
 }
 
