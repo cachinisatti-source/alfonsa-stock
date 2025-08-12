@@ -167,14 +167,15 @@ export default function VerificationPage() {
   }
 
   const goBackToControls = () => {
-    // Limpiar todos los estados relacionados con el control seleccionado
+    console.log("🔄 Volviendo a la vista de controles...")
+
+    // Limpiar TODOS los estados inmediatamente
     setSelectedControl(null)
     setEditingItems({})
     setMobileMenuOpen(false)
     setSelectedProductModal(null)
 
-    // Forzar actualización de datos
-    loadControlsData()
+    console.log("✅ Estados limpiados, volviendo a vista de tarjetas")
   }
 
   const logout = () => {
@@ -194,10 +195,22 @@ export default function VerificationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-amber-50">
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-amber-50 relative">
       <div className="max-w-7xl mx-auto p-3 sm:p-6 space-y-4 sm:space-y-8">
         {/* Header - Responsive */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-lg border border-orange-200 space-y-4 sm:space-y-0">
+          {/* Botón página principal - Esquina superior izquierda */}
+          <div className="absolute top-3 left-3 sm:top-4 sm:left-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open("https://pedidos-alfonsa-dist.vercel.app/", "_blank")}
+              className="bg-white/90 hover:bg-white border-orange-200 hover:border-[#E47C00] text-slate-700 hover:text-[#E47C00] shadow-md"
+              title="Ir a página principal"
+            >
+              <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4" />
+            </Button>
+          </div>
           <div className="flex items-center space-x-3 sm:space-x-4">
             <div className="p-2 sm:p-3 bg-gradient-to-r from-[#E47C00] to-orange-600 rounded-lg sm:rounded-xl shadow-lg">
               <Package className="h-6 w-6 sm:h-8 sm:w-8 text-white" />

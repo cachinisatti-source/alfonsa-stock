@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Package, BarChart3, Lock, UserIcon, Edit2, Check, X, CheckCircle } from "lucide-react"
+import { Package, BarChart3, Lock, UserIcon, Edit2, Check, X, CheckCircle, ArrowLeft } from "lucide-react"
 
 type SystemUser = {
   id: string
@@ -127,7 +127,18 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-900 via-amber-900 to-orange-800 flex items-center justify-center p-3 sm:p-4 relative">
-      {/* Botón de regreso - Responsive */}
+      {/* Botón página principal - Esquina superior izquierda */}
+      <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-20">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => window.open("https://pedidos-alfonsa-dist.vercel.app/", "_blank")}
+          className="bg-white/90 hover:bg-white border-orange-200 hover:border-[#E47C00] text-slate-700 hover:text-[#E47C00] shadow-md"
+          title="Ir a página principal"
+        >
+          <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4" />
+        </Button>
+      </div>
 
       <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3Zn')] opacity-20"></div>
 
