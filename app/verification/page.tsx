@@ -167,15 +167,14 @@ export default function VerificationPage() {
   }
 
   const goBackToControls = () => {
-    // Limpiar estados primero
+    // Limpiar todos los estados relacionados con el control seleccionado
+    setSelectedControl(null)
     setEditingItems({})
     setMobileMenuOpen(false)
     setSelectedProductModal(null)
 
-    // Luego cambiar la vista con un pequeño delay para evitar conflictos
-    setTimeout(() => {
-      setSelectedControl(null)
-    }, 100)
+    // Forzar actualización de datos
+    loadControlsData()
   }
 
   const logout = () => {
@@ -251,7 +250,7 @@ export default function VerificationPage() {
                 className="hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-colors bg-transparent"
               >
                 <Package className="h-4 w-4 mr-2" />
-                Stock
+                Ver Controles
               </Button>
             )}
             <Button
@@ -291,7 +290,7 @@ export default function VerificationPage() {
                   className="w-full justify-start hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-colors bg-transparent"
                 >
                   <Package className="h-4 w-4 mr-2" />
-                  Stock
+                  Ver Controles
                 </Button>
               )}
               <Button
@@ -544,7 +543,7 @@ export default function VerificationPage() {
                                   size="sm"
                                   className="border-[#E47C00] text-[#E47C00] hover:bg-[#E47C00]/10"
                                 >
-                                  Ingresar cantidad
+                                  ?
                                 </Button>
                               )}
                             </td>

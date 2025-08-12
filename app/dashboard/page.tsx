@@ -138,16 +138,42 @@ export default function Dashboard() {
     lines.forEach((line) => {
       if (!line.trim()) return
 
-      const match = line.match(/^(\d+)\s+(.+?)(\d+)?\s*$/)
+      // Limpiar la línea de espacios extra pero mantener la estructura
+      const cleanLine = line.trim()
+
+      // Patrón para detectar: código (3-5 dígitos) + espacios + denominación + posible stock al final
+      const match = cleanLine.match(/^(\d{2,5})\s+(.+)$/)
 
       if (match) {
         const codigo = match[1]
-        let denominacion = match[2].trim()
+        const restOfLine = match[2].trim()
+        let denominacion = restOfLine
         let stock_sistema = 0
 
-        if (match[3]) {
-          stock_sistema = Number.parseInt(match[3])
-          denominacion = denominacion.replace(/\s+\d+\s*$/, "").trim()
+        // Buscar si hay un número al final que podría ser stock
+        // Patrón: muchos espacios seguidos de un número al final
+        const stockMatch = restOfLine.match(/^(.+?)\s{3,}(\d+)\s*$/)
+
+        if (stockMatch) {
+          // Hay un número separado por muchos espacios - es stock
+          denominacion = stockMatch[1].trim()
+          stock_sistema = Number.parseInt(stockMatch[2])
+        } else {
+          // Verificar si termina con un número que podría ser stock
+          const endNumberMatch = restOfLine.match(/^(.+?)\s+(\d+)\s*$/)
+
+          if (endNumberMatch) {
+            const possibleStock = Number.parseInt(endNumberMatch[2])
+            const beforeNumber = endNumberMatch[1].trim()
+
+            // Heurística: si el número es razonable para stock (≤500) y la denominación
+            // termina en unidades comunes, entonces es stock
+            if (possibleStock <= 500 && /\b(CC|ML|LITRO|LT|CL)\b\s*$/i.test(beforeNumber)) {
+              denominacion = beforeNumber
+              stock_sistema = possibleStock
+            }
+            // Si no cumple la heurística, el número es parte del nombre
+          }
         }
 
         items.push({
@@ -155,6 +181,30 @@ export default function Dashboard() {
           denominacion,
           stock_sistema,
         })
+      } else {
+        // Fallback: intentar parsing básico si no coincide con el patrón principal
+        const parts = cleanLine.split(/\s+/)
+        if (parts.length >= 2 && /^\d{2,5}$/.test(parts[0])) {
+          const codigo = parts[0]
+          const lastPart = parts[parts.length - 1]
+          const isLastPartStock = /^\d+$/.test(lastPart) && Number.parseInt(lastPart) <= 500
+
+          let denominacion: string
+          let stock_sistema = 0
+
+          if (isLastPartStock && parts.length > 2) {
+            denominacion = parts.slice(1, -1).join(" ")
+            stock_sistema = Number.parseInt(lastPart)
+          } else {
+            denominacion = parts.slice(1).join(" ")
+          }
+
+          items.push({
+            codigo,
+            denominacion,
+            stock_sistema,
+          })
+        }
       }
     })
 
