@@ -5,12 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Package, BarChart3, Lock, UserIcon, Edit2, Check, X } from "lucide-react"
+import { Package, BarChart3, Lock, UserIcon, Edit2, Check, X, CheckCircle } from "lucide-react"
 
 type SystemUser = {
   id: string
   name: string
   role: "lider" | "user1" | "user2"
+  branch?: string
 }
 
 export default function LoginPage() {
@@ -24,6 +25,13 @@ export default function LoginPage() {
     { id: "user1", name: "Usuario 1", role: "user1" },
     { id: "user2", name: "Usuario 2", role: "user2" },
   ])
+  const [selectedBranch, setSelectedBranch] = useState<string>("")
+
+  const branches = [
+    { id: "betbeder", name: "Betbeder", color: "from-blue-600 to-blue-700" },
+    { id: "iseas", name: "Iseas", color: "from-green-600 to-green-700" },
+    { id: "llerena", name: "Llerena", color: "from-purple-600 to-purple-700" },
+  ]
 
   useEffect(() => {
     // Cargar nombres personalizados guardados
@@ -40,7 +48,15 @@ export default function LoginPage() {
   }, [])
 
   const handleLogin = (user: SystemUser) => {
-    localStorage.setItem("currentUser", JSON.stringify(user))
+    if (!selectedBranch) {
+      alert("Por favor selecciona una sucursal")
+      return
+    }
+
+    const userWithBranch = { ...user, branch: selectedBranch }
+    localStorage.setItem("currentUser", JSON.stringify(userWithBranch))
+    localStorage.setItem("currentBranch", selectedBranch)
+
     if (user.role === "lider") {
       window.location.href = "/dashboard"
     } else {
@@ -49,6 +65,11 @@ export default function LoginPage() {
   }
 
   const handleLeaderLogin = () => {
+    if (!selectedBranch) {
+      alert("Por favor selecciona una sucursal primero")
+      return
+    }
+
     if (leaderCredentials.username === "admin" && leaderCredentials.password === "admin1234") {
       const leaderUser: SystemUser = { id: "lider", name: "Líder", role: "lider" }
       handleLogin(leaderUser)
@@ -58,6 +79,11 @@ export default function LoginPage() {
   }
 
   const handleCustomLogin = () => {
+    if (!selectedBranch) {
+      alert("Por favor selecciona una sucursal primero")
+      return
+    }
+
     if (!customName.trim()) return
 
     const customUser: SystemUser = {
@@ -203,6 +229,28 @@ export default function LoginPage() {
                       )}
                     </div>
                   ))}
+                </div>
+
+                {/* Selector de Sucursal - Compacto */}
+                <div className="space-y-2 sm:space-y-3">
+                  <Label className="text-white font-medium text-sm sm:text-base">Sucursal</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {branches.map((branch) => (
+                      <Button
+                        key={branch.id}
+                        onClick={() => setSelectedBranch(branch.id)}
+                        variant={selectedBranch === branch.id ? "default" : "outline"}
+                        className={`h-8 sm:h-10 text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                          selectedBranch === branch.id
+                            ? `bg-gradient-to-r ${branch.color} text-white shadow-md scale-105`
+                            : "bg-white/5 border-white/20 text-white hover:bg-white/10"
+                        }`}
+                      >
+                        {branch.name}
+                        {selectedBranch === branch.id && <CheckCircle className="h-3 w-3 ml-1" />}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="relative">

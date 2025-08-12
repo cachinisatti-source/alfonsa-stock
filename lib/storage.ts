@@ -7,7 +7,7 @@ import {
   type StockItem,
 } from "./supabase"
 
-// Sistema de almacenamiento híbrido automático
+// Sistema de almacenamiento híbrido automático con soporte para sucursales
 let useSupabase = true
 let storageInitialized = false
 let realtimeSubscription: any = null
@@ -44,6 +44,14 @@ export const initializeStorage = async () => {
   }
 }
 
+// Obtener sucursal actual
+const getCurrentBranch = (): string => {
+  if (typeof window !== "undefined") {
+    return localStorage.getItem("currentBranch") || "betbeder"
+  }
+  return "betbeder"
+}
+
 // Auto-retry para operaciones de Supabase
 const withRetry = async (operation: () => Promise<any>, maxRetries = 3) => {
   for (let i = 0; i < maxRetries; i++) {
@@ -65,10 +73,11 @@ const withRetry = async (operation: () => Promise<any>, maxRetries = 3) => {
 
 export const loadControls = async (): Promise<StockControlWithItems[]> => {
   await initializeStorage()
+  const currentBranch = getCurrentBranch()
 
   if (useSupabase) {
     try {
-      console.log("📥 Loading controls from Supabase...")
+      console.log(`📥 Loading controls from Supabase for branch: ${currentBranch}...`)
 
       const result = await withRetry(async () => {
         const table = await supabase.from("stock_controls")
@@ -77,13 +86,14 @@ export const loadControls = async (): Promise<StockControlWithItems[]> => {
             *,
             stock_items (*)
           `)
+          .eq("branch", currentBranch)
           .order("created_at", { ascending: false })
 
         if (error) throw error
         return data || []
       })
 
-      console.log("✅ Loaded", result.length, "controls from Supabase")
+      console.log("✅ Loaded", result.length, `controls from Supabase for ${currentBranch}`)
       return result
     } catch (error) {
       console.error("❌ Supabase failed, using localStorage:", error)
@@ -92,8 +102,8 @@ export const loadControls = async (): Promise<StockControlWithItems[]> => {
   }
 
   // Fallback a localStorage
-  console.log("📥 Loading controls from localStorage...")
-  const saved = localStorage.getItem("stockControls")
+  console.log(`📥 Loading controls from localStorage for branch: ${currentBranch}...`)
+  const saved = localStorage.getItem(`stockControls_${currentBranch}`)
   if (saved) {
     try {
       const controls = JSON.parse(saved)
@@ -101,7 +111,7 @@ export const loadControls = async (): Promise<StockControlWithItems[]> => {
         ...control,
         stock_items: control.items || control.stock_items || [],
       }))
-      console.log("✅ Loaded", converted.length, "controls from localStorage")
+      console.log("✅ Loaded", converted.length, `controls from localStorage for ${currentBranch}`)
       return converted
     } catch (error) {
       console.error("❌ Error parsing localStorage:", error)
@@ -117,16 +127,21 @@ export const createControl = async (
   items: Omit<StockItem, "id" | "control_id" | "created_at" | "updated_at">[],
 ): Promise<StockControlWithItems> => {
   await initializeStorage()
+  const currentBranch = getCurrentBranch()
 
   if (useSupabase) {
     try {
-      console.log("📤 Creating control in Supabase:", name)
+      console.log(`📤 Creating control in Supabase for branch ${currentBranch}:`, name)
 
       const result = await withRetry(async () => {
-        // Crear el control
+        // Crear el control con sucursal
         const controlsTable = await supabase.from("stock_controls")
         const { data: control, error: controlError } = await controlsTable
-          .insert({ name, created_by: createdBy })
+          .insert({
+            name,
+            created_by: createdBy,
+            branch: currentBranch,
+          })
           .select()
           .single()
 
@@ -149,7 +164,7 @@ export const createControl = async (
         }
       })
 
-      console.log("✅ Control created in Supabase")
+      console.log(`✅ Control created in Supabase for ${currentBranch}`)
       return result
     } catch (error) {
       console.error("❌ Supabase failed, using localStorage:", error)
@@ -158,11 +173,12 @@ export const createControl = async (
   }
 
   // Fallback a localStorage
-  console.log("📤 Creating control in localStorage:", name)
+  console.log(`📤 Creating control in localStorage for branch ${currentBranch}:`, name)
   const newControl: StockControlWithItems = {
     id: `control_${Date.now()}`,
     name,
     created_by: createdBy,
+    branch: currentBranch,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     stock_items: items.map((item, index) => ({
@@ -176,14 +192,15 @@ export const createControl = async (
 
   const controls = await loadControls()
   const updatedControls = [newControl, ...controls]
-  localStorage.setItem("stockControls", JSON.stringify(updatedControls))
+  localStorage.setItem(`stockControls_${currentBranch}`, JSON.stringify(updatedControls))
 
-  console.log("✅ Control created in localStorage")
+  console.log(`✅ Control created in localStorage for ${currentBranch}`)
   return newControl
 }
 
 export const updateItem = async (itemId: string, updates: Partial<StockItem>): Promise<void> => {
   await initializeStorage()
+  const currentBranch = getCurrentBranch()
 
   if (useSupabase) {
     try {
@@ -199,7 +216,7 @@ export const updateItem = async (itemId: string, updates: Partial<StockItem>): P
         if (error) throw error
       })
 
-      console.log("✅ Item updated in Supabase")
+      console.log(`✅ Item updated in Supabase for ${currentBranch}`)
       return
     } catch (error) {
       console.error("❌ Supabase failed, using localStorage:", error)
@@ -216,12 +233,13 @@ export const updateItem = async (itemId: string, updates: Partial<StockItem>): P
     ),
   }))
 
-  localStorage.setItem("stockControls", JSON.stringify(updatedControls))
-  console.log("✅ Item updated in localStorage")
+  localStorage.setItem(`stockControls_${currentBranch}`, JSON.stringify(updatedControls))
+  console.log(`✅ Item updated in localStorage for ${currentBranch}`)
 }
 
 export const deleteControl = async (controlId: string): Promise<void> => {
   await initializeStorage()
+  const currentBranch = getCurrentBranch()
 
   if (useSupabase) {
     try {
@@ -231,7 +249,7 @@ export const deleteControl = async (controlId: string): Promise<void> => {
         if (error) throw error
       })
 
-      console.log("✅ Control deleted from Supabase")
+      console.log(`✅ Control deleted from Supabase for ${currentBranch}`)
       return
     } catch (error) {
       console.error("❌ Supabase failed, using localStorage:", error)
@@ -242,8 +260,8 @@ export const deleteControl = async (controlId: string): Promise<void> => {
   // Fallback a localStorage
   const controls = await loadControls()
   const updatedControls = controls.filter((control) => control.id !== controlId)
-  localStorage.setItem("stockControls", JSON.stringify(updatedControls))
-  console.log("✅ Control deleted from localStorage")
+  localStorage.setItem(`stockControls_${currentBranch}`, JSON.stringify(updatedControls))
+  console.log(`✅ Control deleted from localStorage for ${currentBranch}`)
 }
 
 export const subscribeToChanges = (callback: () => void) => {
@@ -252,7 +270,8 @@ export const subscribeToChanges = (callback: () => void) => {
     return null
   }
 
-  console.log("📡 Setting up real-time subscriptions...")
+  const currentBranch = getCurrentBranch()
+  console.log(`📡 Setting up real-time subscriptions for branch: ${currentBranch}...`)
 
   // Limpiar suscripción anterior si existe
   if (realtimeSubscription) {
@@ -265,19 +284,36 @@ export const subscribeToChanges = (callback: () => void) => {
       const client = await getSupabaseClient()
 
       realtimeSubscription = client
-        .channel("stock_changes")
-        .on("postgres_changes", { event: "*", schema: "public", table: "stock_controls" }, (payload: any) => {
-          console.log("🔄 Stock control changed:", payload.eventType, payload.new?.name || payload.old?.name)
-          callback()
-        })
+        .channel(`stock_changes_${currentBranch}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "stock_controls",
+            filter: `branch=eq.${currentBranch}`,
+          },
+          (payload: any) => {
+            console.log(
+              `🔄 Stock control changed in ${currentBranch}:`,
+              payload.eventType,
+              payload.new?.name || payload.old?.name,
+            )
+            callback()
+          },
+        )
         .on("postgres_changes", { event: "*", schema: "public", table: "stock_items" }, (payload: any) => {
-          console.log("🔄 Stock item changed:", payload.eventType, payload.new?.codigo || payload.old?.codigo)
+          console.log(
+            `🔄 Stock item changed in ${currentBranch}:`,
+            payload.eventType,
+            payload.new?.codigo || payload.old?.codigo,
+          )
           callback()
         })
         .subscribe((status: string) => {
-          console.log("📡 Real-time subscription status:", status)
+          console.log(`📡 Real-time subscription status for ${currentBranch}:`, status)
           if (status === "SUBSCRIBED") {
-            console.log("🎉 Real-time sync is now active!")
+            console.log(`🎉 Real-time sync is now active for ${currentBranch}!`)
           }
         })
 
@@ -296,7 +332,7 @@ export const subscribeToChanges = (callback: () => void) => {
       if (realtimeSubscription) {
         realtimeSubscription.unsubscribe()
         realtimeSubscription = null
-        console.log("📡 Real-time subscription unsubscribed")
+        console.log(`📡 Real-time subscription unsubscribed for ${currentBranch}`)
       }
     },
   }
@@ -304,17 +340,33 @@ export const subscribeToChanges = (callback: () => void) => {
 
 export const getStorageStatus = async () => {
   await initializeStorage()
+  const currentBranch = getCurrentBranch()
+
   if (useSupabase) {
     const info = await getConnectionInfo()
     return {
       type: "supabase" as const,
       configName: info.configName,
       realTime: true,
+      branch: currentBranch,
     }
   }
   return {
     type: "localStorage" as const,
     configName: "Local Storage",
     realTime: false,
+    branch: currentBranch,
   }
+}
+
+// Función para obtener información de la sucursal actual
+export const getCurrentBranchInfo = () => {
+  const currentBranch = getCurrentBranch()
+  const branches = {
+    betbeder: { name: "Betbeder", color: "blue" },
+    iseas: { name: "Iseas", color: "green" },
+    llerena: { name: "Llerena", color: "purple" },
+  }
+
+  return branches[currentBranch as keyof typeof branches] || branches.betbeder
 }

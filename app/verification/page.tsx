@@ -19,8 +19,15 @@ import {
   Loader2,
   Edit3,
   X,
+  AlertTriangle,
 } from "lucide-react"
-import { loadControls, updateItem, subscribeToChanges, type StockControlWithItems } from "@/lib/storage"
+import {
+  loadControls,
+  updateItem,
+  subscribeToChanges,
+  type StockControlWithItems,
+  getCurrentBranchInfo,
+} from "@/lib/storage"
 
 type UserRole = "lider" | "user1" | "user2"
 
@@ -34,6 +41,7 @@ export default function VerificationPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
   const [selectedProductModal, setSelectedProductModal] = useState<any | null>(null)
+  const [branchInfo, setBranchInfo] = useState<{ name: string; color: string }>({ name: "Betbeder", color: "blue" })
 
   const openProductModal = (item: any) => {
     setSelectedProductModal(item)
@@ -82,6 +90,10 @@ export default function VerificationPage() {
       window.location.href = "/"
       return
     }
+
+    // Cargar información de sucursal
+    const branchData = getCurrentBranchInfo()
+    setBranchInfo(branchData)
 
     // Initial load of controls
     loadControlsData()
@@ -196,6 +208,11 @@ export default function VerificationPage() {
               <p className="text-sm sm:text-base text-slate-600 flex items-center">
                 <UserIcon className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
                 Bienvenido, {currentUser.name}
+                <span
+                  className={`ml-2 px-2 py-1 rounded-full text-xs font-semibold bg-${branchInfo.color}-100 text-${branchInfo.color}-800`}
+                >
+                  {branchInfo.name}
+                </span>
               </p>
             </div>
           </div>
@@ -447,10 +464,19 @@ export default function VerificationPage() {
                         const hasValue = userValue !== undefined && userValue !== null
                         const isEditing = editingItems.hasOwnProperty(item.id)
 
+                        // Verificar inconsistencia del usuario actual
+                        const hasInconsistency = hasValue && userValue !== item.stock_sistema
+
                         return (
                           <tr
                             key={item.id}
-                            className={`border-b transition-colors ${hasValue && !isEditing ? "bg-green-50" : "hover:bg-orange-50"}`}
+                            className={`border-b transition-colors ${
+                              hasValue && !isEditing
+                                ? hasInconsistency
+                                  ? "bg-red-50 border-l-4 border-l-red-400 hover:bg-red-100"
+                                  : "bg-green-50 hover:bg-green-100"
+                                : "hover:bg-orange-50"
+                            }`}
                           >
                             <td className="p-1 sm:p-2 md:p-4 font-medium text-slate-800 text-xs sm:text-sm">
                               <div
@@ -524,10 +550,18 @@ export default function VerificationPage() {
                             </td>
                             <td className="p-1 sm:p-2 md:p-4 text-center">
                               {hasValue && !isEditing ? (
-                                <div className="flex items-center justify-center">
+                                <div className="flex items-center justify-center space-x-1">
                                   <div className="p-1 sm:p-1.5 bg-green-100 rounded-full">
                                     <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
                                   </div>
+                                  {hasInconsistency && (
+                                    <div
+                                      className="p-1 bg-red-100 rounded-full"
+                                      title="Diferencia detectada con el stock del sistema"
+                                    >
+                                      <AlertTriangle className="h-3 w-3 text-red-600" />
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
                                 <div className="flex items-center justify-center">

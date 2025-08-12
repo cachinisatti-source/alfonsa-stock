@@ -30,6 +30,7 @@ import {
   deleteControl,
   subscribeToChanges,
   type StockControlWithItems,
+  getCurrentBranchInfo,
 } from "@/lib/storage"
 import { useUserNames } from "@/hooks/use-user-names"
 
@@ -50,6 +51,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [storageStatus, setStorageStatus] = useState<"supabase" | "localStorage" | "loading">("loading")
+  const [branchInfo, setBranchInfo] = useState<{ name: string; color: string }>({ name: "Betbeder", color: "blue" })
 
   // Estados para manejar inputs con debounce
   const [localInputs, setLocalInputs] = useState<{ [key: string]: string }>({})
@@ -71,6 +73,10 @@ export default function Dashboard() {
       window.location.href = "/"
       return
     }
+
+    // Cargar información de sucursal
+    const branchData = getCurrentBranchInfo()
+    setBranchInfo(branchData)
 
     // Inicializar storage y cargar datos
     const init = async () => {
@@ -385,6 +391,11 @@ export default function Dashboard() {
               <p className="text-sm sm:text-base text-slate-600 flex items-center">
                 <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
                 Bienvenido, {currentUser.name}
+                <span
+                  className={`ml-2 px-2 py-1 rounded-full text-xs font-semibold bg-${branchInfo.color}-100 text-${branchInfo.color}-800`}
+                >
+                  {branchInfo.name}
+                </span>
               </p>
             </div>
           </div>
@@ -710,8 +721,28 @@ export default function Dashboard() {
                     {currentControl.stock_items.map((item) => {
                       const calculatedResult = calculateResult(item)
 
+                      // Verificar si hay inconsistencia con cualquier usuario
+                      const hasUser1Inconsistency =
+                        item.user1_value !== undefined &&
+                        item.user1_value !== null &&
+                        item.user1_value !== item.stock_sistema
+
+                      const hasUser2Inconsistency =
+                        item.user2_value !== undefined &&
+                        item.user2_value !== null &&
+                        item.user2_value !== item.stock_sistema
+
+                      const hasAnyInconsistency = hasUser1Inconsistency || hasUser2Inconsistency
+
                       return (
-                        <tr key={item.id} className="border-b hover:bg-orange-50 transition-colors">
+                        <tr
+                          key={item.id}
+                          className={`border-b transition-colors ${
+                            hasAnyInconsistency
+                              ? "bg-red-50 hover:bg-red-100 border-l-4 border-l-red-400"
+                              : "hover:bg-orange-50"
+                          }`}
+                        >
                           <td className="p-2 sm:p-4 font-mono font-semibold text-[#E47C00] text-xs sm:text-base">
                             {item.codigo}
                           </td>
@@ -725,7 +756,13 @@ export default function Dashboard() {
                           </td>
                           <td className="p-2 sm:p-4 text-center">
                             {item.user1_value !== undefined && item.user1_value !== null ? (
-                              <Badge className="bg-[#E47C00]/10 text-[#E47C00] border-[#E47C00]/30 text-xs">
+                              <Badge
+                                className={`text-xs font-semibold ${
+                                  item.user1_value !== item.stock_sistema
+                                    ? "bg-red-100 text-red-800 border-red-300"
+                                    : "bg-[#E47C00]/10 text-[#E47C00] border-[#E47C00]/30"
+                                }`}
+                              >
                                 {item.user1_value}
                               </Badge>
                             ) : (
@@ -734,7 +771,13 @@ export default function Dashboard() {
                           </td>
                           <td className="p-2 sm:p-4 text-center">
                             {item.user2_value !== undefined && item.user2_value !== null ? (
-                              <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-xs">
+                              <Badge
+                                className={`text-xs font-semibold ${
+                                  item.user2_value !== item.stock_sistema
+                                    ? "bg-red-100 text-red-800 border-red-300"
+                                    : "bg-amber-100 text-amber-800 border-amber-300"
+                                }`}
+                              >
                                 {item.user2_value}
                               </Badge>
                             ) : (
