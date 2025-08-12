@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CheckCircle, XCircle, RefreshCw, Database, Zap, Copy, ExternalLink, ArrowLeft } from "lucide-react"
-import { testConnection } from "@/lib/supabase"
 
 export default function SetupPage() {
   const [supabaseUrl, setSupabaseUrl] = useState("")
@@ -35,30 +34,19 @@ export default function SetupPage() {
     setTestResult(null)
 
     try {
-      // Temporalmente establecer las variables para la prueba
-      const originalUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const originalKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      // Crear un cliente temporal para la prueba
+      const { createClient } = await import("@supabase/supabase-js")
+      const testClient = createClient(supabaseUrl, supabaseKey)
 
-      // @ts-ignore
-      process.env.NEXT_PUBLIC_SUPABASE_URL = supabaseUrl
-      // @ts-ignore
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = supabaseKey
+      // Probar la conexión
+      const { data, error } = await testClient.from("stock_controls").select("count").limit(1)
 
-      const isConnected = await testConnection()
-
-      // Restaurar valores originales
-      // @ts-ignore
-      process.env.NEXT_PUBLIC_SUPABASE_URL = originalUrl
-      // @ts-ignore
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = originalKey
-
-      if (isConnected) {
-        setTestResult("success")
-        setTestMessage("¡Conexión exitosa! Supabase está configurado correctamente.")
-      } else {
-        setTestResult("error")
-        setTestMessage("No se pudo conectar. Verifica las credenciales y que las tablas estén creadas.")
+      if (error && error.code !== "PGRST116") {
+        throw error
       }
+
+      setTestResult("success")
+      setTestMessage("¡Conexión exitosa! Supabase está configurado correctamente.")
     } catch (error: any) {
       setTestResult("error")
       setTestMessage(`Error: ${error.message}`)
