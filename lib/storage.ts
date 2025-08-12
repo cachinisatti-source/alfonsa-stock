@@ -10,6 +10,7 @@ import {
 // Sistema de almacenamiento híbrido automático
 let useSupabase = true
 let storageInitialized = false
+let realtimeSubscription: any = null
 
 export const initializeStorage = async () => {
   if (storageInitialized) {
@@ -253,24 +254,34 @@ export const subscribeToChanges = (callback: () => void) => {
 
   console.log("📡 Setting up real-time subscriptions...")
 
+  // Limpiar suscripción anterior si existe
+  if (realtimeSubscription) {
+    realtimeSubscription.unsubscribe()
+  }
+
   // Usar el cliente de Supabase de forma asíncrona
   const setupSubscription = async () => {
     try {
       const client = await getSupabaseClient()
-      const channel = client.channel("stock_changes")
 
-      return channel
+      realtimeSubscription = client
+        .channel("stock_changes")
         .on("postgres_changes", { event: "*", schema: "public", table: "stock_controls" }, (payload: any) => {
-          console.log("🔄 Stock control changed:", payload)
+          console.log("🔄 Stock control changed:", payload.eventType, payload.new?.name || payload.old?.name)
           callback()
         })
         .on("postgres_changes", { event: "*", schema: "public", table: "stock_items" }, (payload: any) => {
-          console.log("🔄 Stock item changed:", payload)
+          console.log("🔄 Stock item changed:", payload.eventType, payload.new?.codigo || payload.old?.codigo)
           callback()
         })
         .subscribe((status: string) => {
-          console.log("📡 Subscription status:", status)
+          console.log("📡 Real-time subscription status:", status)
+          if (status === "SUBSCRIBED") {
+            console.log("🎉 Real-time sync is now active!")
+          }
         })
+
+      return realtimeSubscription
     } catch (error) {
       console.error("❌ Failed to setup subscription:", error)
       return null
@@ -278,20 +289,14 @@ export const subscribeToChanges = (callback: () => void) => {
   }
 
   // Setup subscription asynchronously
-  let subscription: any = null
   setupSubscription()
-    .then((sub) => {
-      subscription = sub
-    })
-    .catch((error) => {
-      console.error("❌ Subscription setup failed:", error)
-    })
 
   return {
     unsubscribe: () => {
-      if (subscription) {
-        subscription.unsubscribe()
-        console.log("📡 Subscription unsubscribed")
+      if (realtimeSubscription) {
+        realtimeSubscription.unsubscribe()
+        realtimeSubscription = null
+        console.log("📡 Real-time subscription unsubscribed")
       }
     },
   }

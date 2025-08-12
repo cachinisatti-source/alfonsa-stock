@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Package, BarChart3, Lock, UserIcon, ArrowLeft, Edit2, Check, X } from "lucide-react"
+import { Package, BarChart3, Lock, UserIcon, Edit2, Check, X } from "lucide-react"
 
 type SystemUser = {
   id: string
@@ -102,16 +102,6 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-900 via-amber-900 to-orange-800 flex items-center justify-center p-3 sm:p-4 relative">
       {/* Botón de regreso - Responsive */}
-      <Button
-        onClick={goToMainSite}
-        variant="outline"
-        size="sm"
-        className="absolute top-3 left-3 sm:top-6 sm:left-6 bg-white/10 border-white/20 text-white hover:bg-white/20 hover:border-white/30 transition-all duration-200 z-20 text-xs sm:text-sm"
-      >
-        <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-        <span className="hidden sm:inline">Volver al sitio principal</span>
-        <span className="sm:hidden">Volver</span>
-      </Button>
 
       <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3Zn')] opacity-20"></div>
 

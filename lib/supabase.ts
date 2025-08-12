@@ -1,5 +1,4 @@
 import { createClient } from "@supabase/supabase-js"
-import { getActiveSupabaseConfig } from "./auto-supabase"
 
 let supabaseClient: any = null
 let initializationPromise: Promise<any> | null = null
@@ -19,13 +18,19 @@ const initializeSupabase = async () => {
 
   initializationPromise = (async () => {
     try {
-      const config = await getActiveSupabaseConfig()
+      // Intentar obtener configuración de variables de entorno
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-      console.log("🔧 Using configuration:", config.name)
-      console.log("📍 URL:", config.url)
-      console.log("🔑 Key:", config.anonKey.substring(0, 50) + "...")
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error("Missing Supabase environment variables")
+      }
 
-      supabaseClient = createClient(config.url, config.anonKey, {
+      console.log("🔧 Using Supabase configuration")
+      console.log("📍 URL:", supabaseUrl)
+      console.log("🔑 Key:", supabaseKey.substring(0, 50) + "...")
+
+      supabaseClient = createClient(supabaseUrl, supabaseKey, {
         auth: {
           persistSession: false,
         },
@@ -34,12 +39,24 @@ const initializeSupabase = async () => {
         },
         global: {
           headers: {
-            "X-Client-Info": "alfonsa-stock-control-auto",
+            "X-Client-Info": "alfonsa-stock-control-v2",
+          },
+        },
+        realtime: {
+          params: {
+            eventsPerSecond: 10,
           },
         },
       })
 
-      console.log("✅ Supabase initialized successfully")
+      // Probar la conexión
+      const { data, error } = await supabaseClient.from("stock_controls").select("count").limit(1)
+
+      if (error && error.code !== "PGRST116") {
+        throw error
+      }
+
+      console.log("✅ Supabase initialized and connected successfully")
       return supabaseClient
     } catch (error) {
       console.error("❌ Failed to initialize Supabase:", error)
@@ -62,9 +79,9 @@ export const supabase = {
     const client = await initializeSupabase()
     return client.from(table)
   },
-  channel: (name: string) => {
-    // Return a promise that resolves to the channel
-    return initializeSupabase().then((client) => client.channel(name))
+  channel: async (name: string) => {
+    const client = await initializeSupabase()
+    return client.channel(name)
   },
   auth: {
     getUser: async () => {
@@ -105,11 +122,10 @@ export const testConnection = async () => {
 export const getConnectionInfo = async () => {
   try {
     await initializeSupabase()
-    const { getActiveConfigName, getConnectionStatus } = await import("./auto-supabase")
     return {
       isConnected: !!supabaseClient,
-      configName: getActiveConfigName(),
-      status: getConnectionStatus(),
+      configName: "Supabase",
+      status: "connected",
     }
   } catch (error) {
     return {

@@ -17,7 +17,6 @@ import {
   Users,
   BarChart3,
   Trash2,
-  ExternalLink,
   Menu,
   RefreshCw,
   Loader2,
@@ -32,6 +31,7 @@ import {
   subscribeToChanges,
   type StockControlWithItems,
 } from "@/lib/storage"
+import { useUserNames } from "@/hooks/use-user-names"
 
 type User = {
   id: string
@@ -42,7 +42,7 @@ type User = {
 export default function Dashboard() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [stockText, setStockText] = useState("")
-  const [showResults, setShowResults] = useState(false)
+  const [showResults, setShowResults] = useState(true)
   const [stockControls, setStockControls] = useState<StockControlWithItems[]>([])
   const [currentControl, setCurrentControl] = useState<StockControlWithItems | null>(null)
   const [controlName, setControlName] = useState("")
@@ -50,6 +50,13 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [storageStatus, setStorageStatus] = useState<"supabase" | "localStorage" | "loading">("loading")
+
+  // Estados para manejar inputs con debounce
+  const [localInputs, setLocalInputs] = useState<{ [key: string]: string }>({})
+  const [saveTimeouts, setSaveTimeouts] = useState<{ [key: string]: NodeJS.Timeout }>({})
+
+  // Hook para obtener nombres de usuarios actualizados
+  const { user1Name, user2Name } = useUserNames()
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser")
@@ -99,7 +106,17 @@ export default function Dashboard() {
       // Actualizar control actual si existe
       if (currentControl) {
         const updated = controls.find((c) => c.id === currentControl.id)
-        if (updated) setCurrentControl(updated)
+        if (updated) {
+          setCurrentControl(updated)
+          // Actualizar inputs locales con valores actuales
+          const newLocalInputs: { [key: string]: string } = {}
+          updated.stock_items.forEach((item) => {
+            if (item.corregido !== null && item.corregido !== undefined) {
+              newLocalInputs[item.id] = item.corregido.toString()
+            }
+          })
+          setLocalInputs(newLocalInputs)
+        }
       }
     } catch (error) {
       console.error("Error loading controls:", error)
@@ -165,23 +182,48 @@ export default function Dashboard() {
     }
   }
 
-  const handleCorrectionChange = async (itemId: string, value: string) => {
-    if (!currentControl) return
+  const handleCorrectionChange = (itemId: string, value: string) => {
+    // Actualizar input local inmediatamente
+    setLocalInputs((prev) => ({
+      ...prev,
+      [itemId]: value,
+    }))
 
-    try {
-      const numValue = value === "" ? null : Number.parseInt(value) || 0
-      const item = currentControl.stock_items.find((i) => i.id === itemId)
-      const resultado = numValue !== null && item ? numValue - item.stock_sistema : null
-
-      await updateItem(itemId, {
-        corregido: numValue,
-        resultado: resultado,
-      })
-
-      // Los datos se actualizarán automáticamente por la suscripción o el próximo refresh
-    } catch (error) {
-      console.error("Error updating correction:", error)
+    // Limpiar timeout anterior si existe
+    if (saveTimeouts[itemId]) {
+      clearTimeout(saveTimeouts[itemId])
     }
+
+    // Crear nuevo timeout para guardar después de 1 segundo
+    const newTimeout = setTimeout(async () => {
+      try {
+        const numValue = value === "" ? null : Number.parseInt(value) || 0
+        const item = currentControl?.stock_items.find((i) => i.id === itemId)
+
+        // CORRECCIÓN: El resultado debe ser Corregido - Stock Sistema
+        const resultado = numValue !== null && item ? numValue - item.stock_sistema : null
+
+        await updateItem(itemId, {
+          corregido: numValue,
+          resultado: resultado,
+        })
+
+        // Limpiar el timeout del estado
+        setSaveTimeouts((prev) => {
+          const newTimeouts = { ...prev }
+          delete newTimeouts[itemId]
+          return newTimeouts
+        })
+      } catch (error) {
+        console.error("Error updating correction:", error)
+      }
+    }, 1000)
+
+    // Guardar el nuevo timeout
+    setSaveTimeouts((prev) => ({
+      ...prev,
+      [itemId]: newTimeout,
+    }))
   }
 
   const handleDeleteControl = async (controlId: string) => {
@@ -192,6 +234,7 @@ export default function Dashboard() {
 
       if (currentControl?.id === controlId) {
         setCurrentControl(null)
+        setLocalInputs({})
       }
 
       await refreshData()
@@ -201,66 +244,108 @@ export default function Dashboard() {
     }
   }
 
-  const exportToCSV = () => {
+  const exportToExcel = () => {
     if (!currentControl) return
 
-    const headers = ["Código", "Denominación", "Stock Sistema", "Usuario 1", "Usuario 2", "Corregido"]
-    if (showResults) {
-      headers.push("Resultado")
-    }
+    console.log("🔍 Exportando datos...")
+    console.log("Control actual:", currentControl.name)
+    console.log("Items:", currentControl.stock_items.length)
 
-    const csvRows = []
-    csvRows.push(headers.join(","))
+    // Crear datos para Excel
+    const data = []
 
-    currentControl.stock_items.forEach((item) => {
-      const row = []
-      row.push(item.codigo)
-      row.push(`"${item.denominacion}"`)
-      row.push(item.stock_sistema.toString())
+    // Headers - exactamente como en la tabla web
+    const headers = ["Código", "Denominación", "Stock Sistema", user1Name, user2Name, "Corregido", "Resultado"]
+    data.push(headers)
 
-      if (item.user1_value !== undefined && item.user1_value !== null) {
-        row.push(item.user1_value.toString())
-      } else {
-        row.push("Pendiente")
+    // Datos de productos - usando exactamente los mismos valores que se muestran en la tabla
+    currentControl.stock_items.forEach((item, index) => {
+      console.log(`📊 Procesando item ${index + 1}:`, {
+        codigo: item.codigo,
+        denominacion: item.denominacion,
+        stock_sistema: item.stock_sistema,
+        user1_value: item.user1_value,
+        user2_value: item.user2_value,
+        corregido_db: item.corregido,
+        local_input: localInputs[item.id],
+      })
+
+      // Usar los mismos valores que se muestran en la tabla web
+      const user1Display = item.user1_value !== undefined && item.user1_value !== null ? item.user1_value : "Pendiente"
+      const user2Display = item.user2_value !== undefined && item.user2_value !== null ? item.user2_value : "Pendiente"
+
+      // Valor corregido - EXACTAMENTE como se muestra en el input de la tabla
+      const correctedValue =
+        localInputs[item.id] !== undefined && localInputs[item.id] !== ""
+          ? localInputs[item.id]
+          : item.corregido !== null && item.corregido !== undefined
+            ? item.corregido.toString()
+            : ""
+
+      // Resultado - usar la misma función que calcula el resultado en la tabla
+      const calculatedResult = calculateResult(item)
+      let resultadoDisplay = ""
+
+      if (calculatedResult !== undefined && calculatedResult !== null) {
+        resultadoDisplay = calculatedResult > 0 ? `+${calculatedResult}` : calculatedResult.toString()
       }
 
-      if (item.user2_value !== undefined && item.user2_value !== null) {
-        row.push(item.user2_value.toString())
-      } else {
-        row.push("Pendiente")
-      }
+      console.log(`✅ Valores finales para ${item.codigo}:`, {
+        user1Display,
+        user2Display,
+        correctedValue,
+        calculatedResult,
+        resultadoDisplay,
+      })
 
-      if (item.corregido !== undefined && item.corregido !== null) {
-        row.push(item.corregido.toString())
-      } else {
-        row.push("")
-      }
-
-      if (showResults) {
-        if (item.resultado !== undefined && item.resultado !== null) {
-          if (item.resultado > 0) {
-            row.push(`+${item.resultado}`)
-          } else {
-            row.push(item.resultado.toString())
-          }
-        } else {
-          row.push("")
-        }
-      }
-
-      csvRows.push(row.join(","))
+      data.push([
+        item.codigo,
+        item.denominacion,
+        item.stock_sistema,
+        user1Display,
+        user2Display,
+        correctedValue,
+        resultadoDisplay,
+      ])
     })
 
-    const csvContent = csvRows.join("\n")
+    console.log("📋 Datos completos para CSV:", data)
+
+    // Crear contenido CSV con formato correcto
+    const csvContent = data
+      .map((row) =>
+        row
+          .map((cell) => {
+            // Convertir a string y escapar comillas
+            const cellStr = String(cell)
+            if (cellStr.includes(",") || cellStr.includes('"') || cellStr.includes("\n")) {
+              return `"${cellStr.replace(/"/g, '""')}"`
+            }
+            return cellStr
+          })
+          .join(","),
+      )
+      .join("\n") // Asegurar saltos de línea correctos
+
+    console.log("📄 CSV generado:")
+    console.log(csvContent)
+
+    // Crear y descargar archivo
     const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" })
     const link = document.createElement("a")
     const url = URL.createObjectURL(blob)
     link.setAttribute("href", url)
-    link.setAttribute("download", `stock_control_${currentControl.name}_${new Date().toISOString().split("T")[0]}.csv`)
+
+    const fileName = `Control_Stock_${currentControl.name.replace(/[^a-zA-Z0-9]/g, "_")}_${new Date().toISOString().split("T")[0]}.csv`
+    link.setAttribute("download", fileName)
+
     link.style.visibility = "hidden"
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+
+    console.log("✅ Archivo descargado:", fileName)
+    alert("✅ Archivo exportado exitosamente!\n\nPuedes abrirlo en Excel y guardarlo como .xlsx si lo necesitas.")
   }
 
   const logout = () => {
@@ -268,9 +353,21 @@ export default function Dashboard() {
     window.location.href = "/"
   }
 
-  const goToMainSite = () => {
-    window.open("https://pedidos-alfonsa-dist.vercel.app/", "_blank")
+  // Función para calcular el resultado en tiempo real
+  const calculateResult = (item: any) => {
+    const correctedValue = localInputs[item.id] || item.corregido
+    if (correctedValue !== null && correctedValue !== undefined && correctedValue !== "") {
+      return Number(correctedValue) - item.stock_sistema
+    }
+    return item.resultado
   }
+
+  // Limpiar timeouts al desmontar el componente
+  useEffect(() => {
+    return () => {
+      Object.values(saveTimeouts).forEach((timeout) => clearTimeout(timeout))
+    }
+  }, [saveTimeouts])
 
   if (!currentUser) return <div>Cargando...</div>
 
@@ -292,19 +389,30 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Storage Status */}
+          {/* Storage Status - Mejorado */}
           {storageStatus !== "loading" && (
             <div className="flex items-center space-x-2">
               {storageStatus === "localStorage" && (
-                <div className="flex items-center space-x-1 text-amber-600 bg-amber-50 px-2 py-1 rounded-lg text-xs">
+                <div className="flex items-center space-x-1 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg text-xs border border-amber-200">
                   <AlertTriangle className="h-3 w-3" />
                   <span>Modo Local</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => (window.location.href = "/setup")}
+                    className="text-amber-700 hover:bg-amber-100 p-1 h-5 ml-2"
+                  >
+                    Configurar
+                  </Button>
                 </div>
               )}
               {storageStatus === "supabase" && (
-                <div className="flex items-center space-x-1 text-green-600 bg-green-50 px-2 py-1 rounded-lg text-xs">
-                  <div className="h-2 w-2 bg-green-500 rounded-full"></div>
-                  <span>En Línea</span>
+                <div className="flex items-center space-x-1 text-green-600 bg-green-50 px-3 py-1.5 rounded-lg text-xs border border-green-200">
+                  <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
+                  <span>Tiempo Real</span>
+                  <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300 text-xs ml-1">
+                    Supabase
+                  </Badge>
                 </div>
               )}
             </div>
@@ -335,14 +443,6 @@ export default function Dashboard() {
             </Button>
             <Button
               variant="outline"
-              onClick={goToMainSite}
-              className="hover:bg-[#E47C00]/10 hover:border-[#E47C00]/30 hover:text-[#E47C00] transition-colors bg-transparent"
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Sitio Principal
-            </Button>
-            <Button
-              variant="outline"
               onClick={logout}
               className="hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors bg-transparent"
             >
@@ -366,14 +466,6 @@ export default function Dashboard() {
                   <RefreshCw className="h-4 w-4 mr-2" />
                 )}
                 Actualizar
-              </Button>
-              <Button
-                variant="outline"
-                onClick={goToMainSite}
-                className="w-full justify-start hover:bg-[#E47C00]/10 hover:border-[#E47C00]/30 hover:text-[#E47C00] transition-colors bg-transparent"
-              >
-                <ExternalLink className="h-4 w-4 mr-2" />
-                Sitio Principal
               </Button>
               <Button
                 variant="outline"
@@ -525,7 +617,7 @@ export default function Dashboard() {
 
                         <div className="space-y-3">
                           <div className="flex justify-between items-center">
-                            <span className="text-xs sm:text-sm font-medium text-slate-700">Usuario 1</span>
+                            <span className="text-xs sm:text-sm font-medium text-slate-700">{user1Name}</span>
                             <Badge
                               variant={user1Progress === totalItems ? "default" : "outline"}
                               className={`text-xs ${user1Progress === totalItems ? "bg-[#E47C00]" : ""}`}
@@ -541,7 +633,7 @@ export default function Dashboard() {
                           </div>
 
                           <div className="flex justify-between items-center">
-                            <span className="text-xs sm:text-sm font-medium text-slate-700">Usuario 2</span>
+                            <span className="text-xs sm:text-sm font-medium text-slate-700">{user2Name}</span>
                             <Badge
                               variant={user2Progress === totalItems ? "default" : "outline"}
                               className={`text-xs ${user2Progress === totalItems ? "bg-amber-600" : ""}`}
@@ -581,16 +673,9 @@ export default function Dashboard() {
                   </CardDescription>
                 </div>
                 <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowResults(!showResults)}
-                    className="bg-white/10 border-white/20 text-white hover:bg-white/20 text-sm"
-                  >
-                    {showResults ? "Ocultar" : "Ver"} Resultados
-                  </Button>
-                  <Button onClick={exportToCSV} className="bg-[#E47C00] hover:bg-orange-600 text-white text-sm">
+                  <Button onClick={exportToExcel} className="bg-[#E47C00] hover:bg-orange-600 text-white text-sm">
                     <Download className="h-4 w-4 mr-2" />
-                    Exportar CSV
+                    Exportar Excel
                   </Button>
                 </div>
               </div>
@@ -608,84 +693,85 @@ export default function Dashboard() {
                         Stock Sistema
                       </th>
                       <th className="text-center p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
-                        Usuario 1
+                        {user1Name}
                       </th>
                       <th className="text-center p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
-                        Usuario 2
+                        {user2Name}
                       </th>
                       <th className="text-center p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
                         Corregido
                       </th>
-                      {showResults && (
-                        <th className="text-center p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
-                          Resultado
-                        </th>
-                      )}
+                      <th className="text-center p-2 sm:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
+                        Resultado
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {currentControl.stock_items.map((item) => (
-                      <tr key={item.id} className="border-b hover:bg-orange-50 transition-colors">
-                        <td className="p-2 sm:p-4 font-mono font-semibold text-[#E47C00] text-xs sm:text-base">
-                          {item.codigo}
-                        </td>
-                        <td className="p-2 sm:p-4 font-medium text-slate-800 text-xs sm:text-sm">
-                          {item.denominacion}
-                        </td>
-                        <td className="p-2 sm:p-4 text-center">
-                          <Badge variant="outline" className="font-semibold border-[#E47C00] text-[#E47C00] text-xs">
-                            {item.stock_sistema}
-                          </Badge>
-                        </td>
-                        <td className="p-2 sm:p-4 text-center">
-                          {item.user1_value !== undefined && item.user1_value !== null ? (
-                            <Badge className="bg-[#E47C00]/10 text-[#E47C00] border-[#E47C00]/30 text-xs">
-                              {item.user1_value}
-                            </Badge>
-                          ) : (
-                            <span className="text-slate-400 text-xs">Pendiente</span>
-                          )}
-                        </td>
-                        <td className="p-2 sm:p-4 text-center">
-                          {item.user2_value !== undefined && item.user2_value !== null ? (
-                            <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-xs">
-                              {item.user2_value}
-                            </Badge>
-                          ) : (
-                            <span className="text-slate-400 text-xs">Pendiente</span>
-                          )}
-                        </td>
-                        <td className="p-2 sm:p-4 text-center">
-                          <Input
-                            type="number"
-                            min="0"
-                            value={item.corregido || ""}
-                            onChange={(e) => handleCorrectionChange(item.id, e.target.value)}
-                            className="w-16 sm:w-24 text-center border-orange-300 focus:border-[#E47C00] text-xs sm:text-sm h-8 sm:h-10"
-                            placeholder="0"
-                          />
-                        </td>
-                        {showResults && (
+                    {currentControl.stock_items.map((item) => {
+                      const calculatedResult = calculateResult(item)
+
+                      return (
+                        <tr key={item.id} className="border-b hover:bg-orange-50 transition-colors">
+                          <td className="p-2 sm:p-4 font-mono font-semibold text-[#E47C00] text-xs sm:text-base">
+                            {item.codigo}
+                          </td>
+                          <td className="p-2 sm:p-4 font-medium text-slate-800 text-xs sm:text-sm">
+                            {item.denominacion}
+                          </td>
                           <td className="p-2 sm:p-4 text-center">
-                            {item.resultado !== undefined && item.resultado !== null && (
+                            <Badge variant="outline" className="font-semibold border-[#E47C00] text-[#E47C00] text-xs">
+                              {item.stock_sistema}
+                            </Badge>
+                          </td>
+                          <td className="p-2 sm:p-4 text-center">
+                            {item.user1_value !== undefined && item.user1_value !== null ? (
+                              <Badge className="bg-[#E47C00]/10 text-[#E47C00] border-[#E47C00]/30 text-xs">
+                                {item.user1_value}
+                              </Badge>
+                            ) : (
+                              <span className="text-slate-400 text-xs">Pendiente</span>
+                            )}
+                          </td>
+                          <td className="p-2 sm:p-4 text-center">
+                            {item.user2_value !== undefined && item.user2_value !== null ? (
+                              <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-xs">
+                                {item.user2_value}
+                              </Badge>
+                            ) : (
+                              <span className="text-slate-400 text-xs">Pendiente</span>
+                            )}
+                          </td>
+                          <td className="p-2 sm:p-4 text-center">
+                            <Input
+                              type="number"
+                              min="0"
+                              value={localInputs[item.id] || ""}
+                              onChange={(e) => handleCorrectionChange(item.id, e.target.value)}
+                              className="w-16 sm:w-24 text-center border-orange-300 focus:border-[#E47C00] text-xs sm:text-sm h-8 sm:h-10"
+                              placeholder="0"
+                            />
+                            {saveTimeouts[item.id] && <div className="text-xs text-blue-600 mt-1">Guardando...</div>}
+                          </td>
+                          <td className="p-2 sm:p-4 text-center">
+                            {calculatedResult !== undefined && calculatedResult !== null && (
                               <Badge
                                 variant="outline"
-                                className={`text-xs ${
-                                  item.resultado > 0
+                                className={`text-xs font-bold ${
+                                  calculatedResult > 0
                                     ? "bg-green-100 text-green-800 border-green-300"
-                                    : item.resultado < 0
+                                    : calculatedResult < 0
                                       ? "bg-red-100 text-red-800 border-red-300"
                                       : "bg-slate-100 text-slate-800 border-slate-300"
                                 }`}
                               >
-                                {item.resultado > 0 ? "+" : ""}
-                                {item.resultado}
+                                {calculatedResult > 0 ? "+" : ""}
+                                {calculatedResult}
                               </Badge>
                             )}
                           </td>
-                        )}
-                      </tr>
-                    ))}
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

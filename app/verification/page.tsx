@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
 import {
   ArrowLeft,
   Package,
@@ -13,10 +14,11 @@ import {
   UserIcon,
   Clock,
   RefreshCw,
-  ExternalLink,
   Menu,
   Save,
   Loader2,
+  Edit3,
+  X,
 } from "lucide-react"
 import { loadControls, updateItem, subscribeToChanges, type StockControlWithItems } from "@/lib/storage"
 
@@ -26,11 +28,20 @@ export default function VerificationPage() {
   const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: UserRole } | null>(null)
   const [stockControls, setStockControls] = useState<StockControlWithItems[]>([])
   const [selectedControl, setSelectedControl] = useState<StockControlWithItems | null>(null)
-  const [userInputs, setUserInputs] = useState<{ [key: string]: string }>({})
+  const [editingItems, setEditingItems] = useState<{ [key: string]: string }>({}) // Para items en edición
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
+  const [selectedProductModal, setSelectedProductModal] = useState<any | null>(null)
+
+  const openProductModal = (item: any) => {
+    setSelectedProductModal(item)
+  }
+
+  const closeProductModal = () => {
+    setSelectedProductModal(null)
+  }
 
   // Memoized function to load controls
   const loadControlsData = useCallback(async () => {
@@ -85,8 +96,15 @@ export default function VerificationPage() {
     }
   }, [loadControlsData])
 
+  const startEditing = (itemId: string, currentValue?: number) => {
+    setEditingItems((prev) => ({
+      ...prev,
+      [itemId]: currentValue?.toString() || "",
+    }))
+  }
+
   const handleInputChange = (itemId: string, value: string) => {
-    setUserInputs((prev) => ({
+    setEditingItems((prev) => ({
       ...prev,
       [itemId]: value,
     }))
@@ -97,7 +115,7 @@ export default function VerificationPage() {
 
     setSaving(itemId)
     try {
-      const value = Number.parseInt(userInputs[itemId]) || 0
+      const value = Number.parseInt(editingItems[itemId]) || 0
       const field = currentUser.role === "user1" ? "user1_value" : "user2_value"
 
       await updateItem(itemId, {
@@ -105,11 +123,15 @@ export default function VerificationPage() {
         updated_at: new Date().toISOString(),
       })
 
-      // Clear input after saving
-      setUserInputs((prev) => ({
-        ...prev,
-        [itemId]: "",
-      }))
+      // Limpiar el estado de edición
+      setEditingItems((prev) => {
+        const newState = { ...prev }
+        delete newState[itemId]
+        return newState
+      })
+
+      // Actualizar datos
+      await loadControlsData()
     } catch (error) {
       console.error("Error saving verification:", error)
       alert("Error al guardar la verificación")
@@ -118,19 +140,35 @@ export default function VerificationPage() {
     }
   }
 
+  const cancelEditing = (itemId: string) => {
+    setEditingItems((prev) => {
+      const newState = { ...prev }
+      delete newState[itemId]
+      return newState
+    })
+  }
+
   const refreshData = async () => {
     setRefreshing(true)
     await loadControlsData()
     setTimeout(() => setRefreshing(false), 500)
   }
 
+  const goBackToControls = () => {
+    // Limpiar estados primero
+    setEditingItems({})
+    setMobileMenuOpen(false)
+    setSelectedProductModal(null)
+
+    // Luego cambiar la vista con un pequeño delay para evitar conflictos
+    setTimeout(() => {
+      setSelectedControl(null)
+    }, 100)
+  }
+
   const logout = () => {
     localStorage.removeItem("currentUser")
     window.location.href = "/"
-  }
-
-  const goToMainSite = () => {
-    window.open("https://pedidos-alfonsa-dist.vercel.app/", "_blank")
   }
 
   if (!currentUser) {
@@ -190,18 +228,15 @@ export default function VerificationPage() {
               Actualizar
             </Button>
             {selectedControl && (
-              <Button variant="outline" onClick={() => setSelectedControl(null)}>
-                Volver a Controles
+              <Button
+                variant="outline"
+                onClick={goBackToControls}
+                className="hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-colors bg-transparent"
+              >
+                <Package className="h-4 w-4 mr-2" />
+                Stock
               </Button>
             )}
-            <Button
-              variant="outline"
-              onClick={goToMainSite}
-              className="hover:bg-[#E47C00]/10 hover:border-[#E47C00]/30 hover:text-[#E47C00] transition-colors bg-transparent"
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Sitio Principal
-            </Button>
             <Button
               variant="outline"
               onClick={logout}
@@ -233,18 +268,15 @@ export default function VerificationPage() {
                 Actualizar
               </Button>
               {selectedControl && (
-                <Button variant="outline" onClick={() => setSelectedControl(null)} className="w-full justify-start">
-                  Volver a Controles
+                <Button
+                  variant="outline"
+                  onClick={goBackToControls}
+                  className="w-full justify-start hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-colors bg-transparent"
+                >
+                  <Package className="h-4 w-4 mr-2" />
+                  Stock
                 </Button>
               )}
-              <Button
-                variant="outline"
-                onClick={goToMainSite}
-                className="w-full justify-start hover:bg-[#E47C00]/10 hover:border-[#E47C00]/30 hover:text-[#E47C00] transition-colors bg-transparent"
-              >
-                <ExternalLink className="h-4 w-4 mr-2" />
-                Sitio Principal
-              </Button>
               <Button
                 variant="outline"
                 onClick={logout}
@@ -401,10 +433,10 @@ export default function VerificationPage() {
                         <th className="text-left p-1 sm:p-2 md:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
                           Denominación
                         </th>
-                        <th className="text-center p-1 sm:p-2 md:p-4 font-semibold text-slate-700 text-xs sm:text-sm w-24 sm:w-32">
+                        <th className="text-center p-1 sm:p-2 md:p-4 font-semibold text-slate-700 text-xs sm:text-sm w-32 sm:w-40">
                           Cantidad Física
                         </th>
-                        <th className="text-center p-1 sm:p-2 md:p-4 font-semibold text-slate-700 text-xs sm:text-sm w-16 sm:w-20">
+                        <th className="text-center p-1 sm:p-2 md:p-4 font-semibold text-slate-700 text-xs sm:text-sm w-20 sm:w-24">
                           Estado
                         </th>
                       </tr>
@@ -413,35 +445,38 @@ export default function VerificationPage() {
                       {selectedControl.stock_items.map((item) => {
                         const userValue = currentUser?.role === "user1" ? item.user1_value : item.user2_value
                         const hasValue = userValue !== undefined && userValue !== null
+                        const isEditing = editingItems.hasOwnProperty(item.id)
 
                         return (
                           <tr
                             key={item.id}
-                            className={`border-b transition-colors ${hasValue ? "bg-green-50" : "hover:bg-orange-50"}`}
+                            className={`border-b transition-colors ${hasValue && !isEditing ? "bg-green-50" : "hover:bg-orange-50"}`}
                           >
                             <td className="p-1 sm:p-2 md:p-4 font-medium text-slate-800 text-xs sm:text-sm">
-                              <div className="truncate max-w-[140px] sm:max-w-none" title={item.denominacion}>
+                              <div
+                                className="truncate max-w-[140px] sm:max-w-none cursor-pointer hover:text-[#E47C00] transition-colors sm:cursor-default sm:hover:text-slate-800"
+                                title={item.denominacion}
+                                onClick={() => (window.innerWidth < 640 ? openProductModal(item) : undefined)}
+                              >
                                 {item.denominacion}
                               </div>
                             </td>
                             <td className="p-1 sm:p-2 md:p-4 text-center">
-                              {hasValue ? (
-                                <Badge className="bg-green-100 text-green-800 border-green-300 px-2 py-1 text-xs sm:text-sm font-semibold">
-                                  {userValue}
-                                </Badge>
-                              ) : (
+                              {isEditing ? (
+                                // Modo edición
                                 <div className="flex items-center justify-center space-x-1">
                                   <Input
                                     type="number"
                                     min="0"
                                     placeholder="0"
-                                    value={userInputs[item.id] || ""}
+                                    value={editingItems[item.id] || ""}
                                     onChange={(e) => handleInputChange(item.id, e.target.value)}
                                     className="w-16 sm:w-20 text-center text-xs sm:text-sm font-semibold border-orange-300 focus:border-[#E47C00] h-7 sm:h-8"
+                                    autoFocus
                                   />
                                   <Button
                                     onClick={() => saveVerification(item.id)}
-                                    disabled={!userInputs[item.id] || saving === item.id}
+                                    disabled={!editingItems[item.id] || saving === item.id}
                                     size="sm"
                                     className="bg-[#E47C00] hover:bg-orange-600 p-1.5 h-7 sm:h-8 w-7 sm:w-8"
                                   >
@@ -451,11 +486,44 @@ export default function VerificationPage() {
                                       <Save className="h-3 w-3 sm:h-4 sm:w-4" />
                                     )}
                                   </Button>
+                                  <Button
+                                    onClick={() => cancelEditing(item.id)}
+                                    size="sm"
+                                    variant="outline"
+                                    className="p-1.5 h-7 sm:h-8 w-7 sm:w-8 border-gray-300"
+                                  >
+                                    <X className="h-3 w-3 sm:h-4 sm:w-4" />
+                                  </Button>
                                 </div>
+                              ) : hasValue ? (
+                                // Modo mostrar valor guardado
+                                <div className="flex items-center justify-center space-x-2">
+                                  <Badge className="bg-green-100 text-green-800 border-green-300 px-2 py-1 text-xs sm:text-sm font-semibold">
+                                    {userValue}
+                                  </Badge>
+                                  <Button
+                                    onClick={() => startEditing(item.id, userValue)}
+                                    size="sm"
+                                    variant="outline"
+                                    className="p-1.5 h-7 sm:h-8 w-7 sm:w-8 border-blue-300 text-blue-600 hover:bg-blue-50"
+                                  >
+                                    <Edit3 className="h-3 w-3 sm:h-4 sm:w-4" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                // Modo inicial - sin valor
+                                <Button
+                                  onClick={() => startEditing(item.id)}
+                                  variant="outline"
+                                  size="sm"
+                                  className="border-[#E47C00] text-[#E47C00] hover:bg-[#E47C00]/10"
+                                >
+                                  Ingresar cantidad
+                                </Button>
                               )}
                             </td>
                             <td className="p-1 sm:p-2 md:p-4 text-center">
-                              {hasValue ? (
+                              {hasValue && !isEditing ? (
                                 <div className="flex items-center justify-center">
                                   <div className="p-1 sm:p-1.5 bg-green-100 rounded-full">
                                     <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
@@ -511,6 +579,54 @@ export default function VerificationPage() {
               </CardContent>
             </Card>
           </>
+        )}
+        {/* Modal de información del producto - Solo móvil */}
+        {selectedProductModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 sm:hidden">
+            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full max-h-[80vh] overflow-y-auto">
+              <div className="bg-gradient-to-r from-[#E47C00] to-orange-600 text-white p-4 rounded-t-xl">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">Información del Producto</h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={closeProductModal}
+                    className="text-white hover:bg-white/20 p-1 h-8 w-8"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <div>
+                  <Label className="text-sm font-semibold text-slate-600">Código</Label>
+                  <p className="text-lg font-mono font-bold text-[#E47C00] mt-1">{selectedProductModal.codigo}</p>
+                </div>
+
+                <div>
+                  <Label className="text-sm font-semibold text-slate-600">Denominación Completa</Label>
+                  <p className="text-base font-medium text-slate-800 mt-1 leading-relaxed">
+                    {selectedProductModal.denominacion}
+                  </p>
+                </div>
+
+                <div className="bg-orange-50 p-3 rounded-lg border border-orange-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <AlertCircle className="h-4 w-4 text-orange-600" />
+                    <Label className="text-sm font-semibold text-orange-800">Recordatorio</Label>
+                  </div>
+                  <p className="text-sm text-orange-700">
+                    Verifica físicamente este producto y registra la cantidad exacta que encuentres.
+                  </p>
+                </div>
+
+                <Button onClick={closeProductModal} className="w-full bg-[#E47C00] hover:bg-orange-600 text-white">
+                  Entendido
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
