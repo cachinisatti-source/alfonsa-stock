@@ -204,7 +204,7 @@ export default function VerificationPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.open("https://pedidos-alfonsa-dist.vercel.app/", "_blank")}
+              onClick={() => (window.location.href = "https://pedidos-alfonsa-dist.vercel.app/")}
               className="bg-white/90 hover:bg-white border-orange-200 hover:border-[#E47C00] text-slate-700 hover:text-[#E47C00] shadow-md"
               title="Ir a página principal"
             >

@@ -434,7 +434,7 @@ export default function Dashboard() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => window.open("https://pedidos-alfonsa-dist.vercel.app/", "_blank")}
+          onClick={() => (window.location.href = "https://pedidos-alfonsa-dist.vercel.app/")}
           className="bg-white/90 hover:bg-white border-orange-200 hover:border-[#E47C00] text-slate-700 hover:text-[#E47C00] shadow-md"
           title="Ir a página principal"
         >
@@ -454,7 +454,7 @@ export default function Dashboard() {
                 <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
                 Bienvenido, {currentUser.name}
                 <span
-                  className={`ml-2 px-2 py-1 rounded-full text-xs font-semibold bg-${branchInfo.color}-100 text-${branchInfo.color}-800`}
+                  className={`ml-2 px-2 py-1.5 rounded-full text-xs font-semibold bg-${branchInfo.color}-100 text-${branchInfo.color}-800`}
                 >
                   {branchInfo.name}
                 </span>
