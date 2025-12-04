@@ -21,17 +21,31 @@ import {
   X,
   AlertTriangle,
 } from "lucide-react"
-import {
-  loadControls,
-  updateItem,
-  subscribeToChanges,
-  type StockControlWithItems,
-  getCurrentBranchInfo,
-} from "@/lib/storage"
+import { loadControls, updateItem, type StockControlWithItems, getCurrentBranchInfo } from "@/lib/storage"
+import { useSearchParams } from "next/navigation"
 
 type UserRole = "lider" | "user1" | "user2"
 
+interface StockControl {
+  id: string
+  userId: string
+  userName: string
+  stockData: string
+  timestamp: string
+  verified: boolean
+  branchName?: string
+}
+
+interface StockItem {
+  code: string
+  name: string
+  quantity: number
+  status: "complete" | "missing" | "excess"
+}
+
 export default function VerificationPage() {
+  const searchParams = useSearchParams()
+  const controlId = searchParams.get("id")
   const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: UserRole } | null>(null)
   const [stockControls, setStockControls] = useState<StockControlWithItems[]>([])
   const [selectedControl, setSelectedControl] = useState<StockControlWithItems | null>(null)
@@ -42,6 +56,9 @@ export default function VerificationPage() {
   const [saving, setSaving] = useState<string | null>(null)
   const [selectedProductModal, setSelectedProductModal] = useState<any | null>(null)
   const [branchInfo, setBranchInfo] = useState<{ name: string; color: string }>({ name: "Betbeder", color: "blue" })
+  const [control, setControl] = useState<StockControl | null>(null)
+  const [parsedItems, setParsedItems] = useState<StockItem[]>([])
+  const [userRole, setUserRole] = useState<"leader" | "user">("user")
 
   const openProductModal = (item: any) => {
     setSelectedProductModal(item)
@@ -73,20 +90,21 @@ export default function VerificationPage() {
   useEffect(() => {
     // Check user authentication
     const user = localStorage.getItem("currentUser")
-    if (user) {
-      try {
-        const parsedUser = JSON.parse(user)
-        setCurrentUser(parsedUser)
-        if (parsedUser.role === "lider") {
-          window.location.href = "/dashboard"
-          return
-        }
-      } catch (error) {
-        console.error("Error parsing user:", error)
-        window.location.href = "/"
+    if (!user) {
+      window.location.href = "/"
+      return
+    }
+
+    try {
+      const parsedUser = JSON.parse(user)
+      setCurrentUser(parsedUser)
+
+      if (parsedUser.role === "lider") {
+        window.location.href = "/dashboard"
         return
       }
-    } else {
+    } catch (error) {
+      console.error("Error parsing user:", error)
       window.location.href = "/"
       return
     }
@@ -95,18 +113,47 @@ export default function VerificationPage() {
     const branchData = getCurrentBranchInfo()
     setBranchInfo(branchData)
 
-    // Initial load of controls
     loadControlsData()
+  }, [])
 
-    // Suscribirse a cambios en tiempo real
-    const subscription = subscribeToChanges(() => loadControlsData())
+  useEffect(() => {
+    const role = localStorage.getItem("userRole") as "leader" | "user"
+    setUserRole(role || "user")
 
-    return () => {
-      if (subscription) {
-        subscription.unsubscribe()
+    if (controlId) {
+      const saved = localStorage.getItem("stockControls")
+      if (saved) {
+        const controls: StockControl[] = JSON.parse(saved)
+        const found = controls.find((c) => c.id === controlId)
+        if (found) {
+          setControl(found)
+          parseStockData(found.stockData)
+        }
       }
     }
-  }, [loadControlsData])
+  }, [controlId])
+
+  const parseStockData = (data: string) => {
+    const lines = data.split("\n").filter((line) => line.trim())
+    const items: StockItem[] = []
+
+    for (const line of lines) {
+      const match = line.match(/^(\d+)\s+(.+?)\s+(\d+(?:\.\d+)?)\s*(.*)$/)
+      if (match) {
+        const [, code, name, quantityStr] = match
+        const quantity = Number.parseFloat(quantityStr)
+
+        items.push({
+          code: code.trim(),
+          name: name.trim(),
+          quantity,
+          status: "complete",
+        })
+      }
+    }
+
+    setParsedItems(items)
+  }
 
   const startEditing = (itemId: string, currentValue?: number) => {
     setEditingItems((prev) => ({
@@ -181,6 +228,18 @@ export default function VerificationPage() {
   const logout = () => {
     localStorage.removeItem("currentUser")
     window.location.href = "/"
+  }
+
+  const handleVerify = () => {
+    if (!control) return
+
+    const saved = localStorage.getItem("stockControls")
+    if (saved) {
+      const controls: StockControl[] = JSON.parse(saved)
+      const updated = controls.map((c) => (c.id === control.id ? { ...c, verified: true } : c))
+      localStorage.setItem("stockControls", JSON.stringify(updated))
+      setControl({ ...control, verified: true })
+    }
   }
 
   if (!currentUser) {
@@ -457,17 +516,11 @@ export default function VerificationPage() {
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[380px] sm:min-w-[480px]">
-                    <thead className="bg-orange-50 border-b">
+                    <thead className="bg-muted">
                       <tr>
-                        <th className="text-left p-1 sm:p-2 md:p-4 font-semibold text-slate-700 text-xs sm:text-sm">
-                          Denominación
-                        </th>
-                        <th className="text-center p-1 sm:p-2 md:p-4 font-semibold text-slate-700 text-xs sm:text-sm w-32 sm:w-40">
-                          Cantidad Física
-                        </th>
-                        <th className="text-center p-1 sm:p-2 md:p-4 font-semibold text-slate-700 text-xs sm:text-sm w-20 sm:w-24">
-                          Estado
-                        </th>
+                        <th className="text-left p-3 font-medium">Código</th>
+                        <th className="text-left p-3 font-medium">Producto</th>
+                        <th className="text-right p-3 font-medium">Cantidad</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -490,7 +543,7 @@ export default function VerificationPage() {
                                 : "hover:bg-orange-50"
                             }`}
                           >
-                            <td className="p-1 sm:p-2 md:p-4 font-medium text-slate-800 text-xs sm:text-sm">
+                            <td className="p-3 sm:p-4 md:p-4 font-medium text-slate-800 text-xs sm:text-sm">
                               <div
                                 className="truncate max-w-[140px] sm:max-w-none cursor-pointer hover:text-[#E47C00] transition-colors sm:cursor-default sm:hover:text-slate-800"
                                 title={item.denominacion}
@@ -499,7 +552,7 @@ export default function VerificationPage() {
                                 {item.denominacion}
                               </div>
                             </td>
-                            <td className="p-1 sm:p-2 md:p-4 text-center">
+                            <td className="p-3 sm:p-4 md:p-4 text-center">
                               {isEditing ? (
                                 // Modo edición
                                 <div className="flex items-center justify-center space-x-1">
@@ -560,7 +613,7 @@ export default function VerificationPage() {
                                 </Button>
                               )}
                             </td>
-                            <td className="p-1 sm:p-2 md:p-4 text-center">
+                            <td className="p-3 sm:p-4 md:p-4 text-center">
                               {hasValue && !isEditing ? (
                                 <div className="flex items-center justify-center space-x-1">
                                   <div className="p-1 sm:p-1.5 bg-green-100 rounded-full">

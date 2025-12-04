@@ -1,11 +1,13 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Package, BarChart3, Lock, UserIcon, Edit2, Check, X, CheckCircle, ArrowLeft } from "lucide-react"
+import { Package, BarChart3, Lock, UserIcon, Edit2, Check, X, CheckCircle, ArrowLeft, Loader2 } from "lucide-react"
 
 type SystemUser = {
   id: string
@@ -26,6 +28,9 @@ export default function LoginPage() {
     { id: "user2", name: "Usuario 2", role: "user2" },
   ])
   const [selectedBranch, setSelectedBranch] = useState<string>("")
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
 
   const branches = [
     { id: "betbeder", name: "Betbeder", color: "from-blue-600 to-blue-700" },
@@ -47,7 +52,7 @@ export default function LoginPage() {
     }
   }, [])
 
-  const handleLogin = (user: SystemUser) => {
+  const handleLogin = async (user: SystemUser) => {
     if (!selectedBranch) {
       alert("Por favor selecciona una sucursal")
       return
@@ -64,35 +69,76 @@ export default function LoginPage() {
     }
   }
 
-  const handleLeaderLogin = () => {
-    if (!selectedBranch) {
-      alert("Por favor selecciona una sucursal primero")
-      return
+  const handleLeaderLogin = async (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault()
     }
+    setIsLoading(true)
+    setLoginError("")
 
-    if (leaderCredentials.username === "admin" && leaderCredentials.password === "admin1234") {
-      const leaderUser: SystemUser = { id: "lider", name: "Líder", role: "lider" }
-      handleLogin(leaderUser)
-    } else {
-      setLoginError("Usuario o contraseña incorrectos")
+    try {
+      if (!selectedBranch) {
+        setLoginError("Por favor selecciona una sucursal")
+        setIsLoading(false)
+        return
+      }
+
+      // Simulate authentication - replace with actual auth logic
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      if (leaderCredentials.username === "admin" && leaderCredentials.password === "admin1234") {
+        localStorage.setItem("userRole", "lider")
+        localStorage.setItem("userName", leaderCredentials.username)
+        localStorage.setItem("currentBranch", selectedBranch)
+
+        // Create and save currentUser object for consistency
+        const leaderUser = {
+          id: "lider",
+          name: leaderCredentials.username,
+          role: "lider",
+          branch: selectedBranch,
+        }
+        localStorage.setItem("currentUser", JSON.stringify(leaderUser))
+
+        window.location.href = "/dashboard"
+      } else {
+        setLoginError("Usuario o contraseña incorrectos")
+      }
+    } catch (err) {
+      setLoginError("Error al iniciar sesión")
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  const handleCustomLogin = () => {
-    if (!selectedBranch) {
-      alert("Por favor selecciona una sucursal primero")
-      return
+  const handleCustomLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setLoginError("")
+
+    try {
+      // Simulate authentication - replace with actual auth logic
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      if (!selectedBranch) {
+        alert("Por favor selecciona una sucursal primero")
+        return
+      }
+
+      if (!customName.trim()) return
+
+      const customUser: SystemUser = {
+        id: `custom_${Date.now()}`,
+        name: customName,
+        role: "user1",
+      }
+
+      handleLogin(customUser)
+    } catch (err) {
+      setLoginError("Error al iniciar sesión")
+    } finally {
+      setIsLoading(false)
     }
-
-    if (!customName.trim()) return
-
-    const customUser: SystemUser = {
-      id: `custom_${Date.now()}`,
-      name: customName,
-      role: "user1",
-    }
-
-    handleLogin(customUser)
   }
 
   const startEditing = (userId: string, currentName: string) => {
@@ -300,7 +346,7 @@ export default function LoginPage() {
             ) : (
               <>
                 {/* Login del Líder - Responsive */}
-                <div className="space-y-4">
+                <form onSubmit={handleLeaderLogin} className="space-y-4">
                   <div className="text-center">
                     <div className="p-2 sm:p-3 bg-gradient-to-r from-[#E47C00] to-orange-600 rounded-full w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 flex items-center justify-center">
                       <Lock className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
@@ -329,6 +375,8 @@ export default function LoginPage() {
                           setLoginError("")
                         }}
                         className="bg-white/10 border-white/20 text-white placeholder:text-orange-200 focus:bg-white/20 focus:border-[#E47C00]/50 text-sm sm:text-base h-9 sm:h-10 mt-1 sm:mt-2"
+                        disabled={isLoading}
+                        required
                       />
                     </div>
                     <div>
@@ -344,8 +392,15 @@ export default function LoginPage() {
                           setLeaderCredentials((prev) => ({ ...prev, password: e.target.value }))
                           setLoginError("")
                         }}
-                        onKeyDown={(e) => e.key === "Enter" && handleLeaderLogin()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault()
+                            handleLeaderLogin()
+                          }
+                        }}
                         className="bg-white/10 border-white/20 text-white placeholder:text-orange-200 focus:bg-white/20 focus:border-[#E47C00]/50 text-sm sm:text-base h-9 sm:h-10 mt-1 sm:mt-2"
+                        disabled={isLoading}
+                        required
                       />
                     </div>
                   </div>
@@ -363,14 +418,21 @@ export default function LoginPage() {
                       Volver
                     </Button>
                     <Button
-                      onClick={handleLeaderLogin}
-                      disabled={!leaderCredentials.username || !leaderCredentials.password}
+                      type="submit"
                       className="flex-1 bg-gradient-to-r from-[#E47C00] to-orange-600 hover:from-orange-600 hover:to-orange-700 h-9 sm:h-10 text-sm sm:text-base"
+                      disabled={isLoading}
                     >
-                      Ingresar
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Iniciando sesión...
+                        </>
+                      ) : (
+                        "Ingresar"
+                      )}
                     </Button>
                   </div>
-                </div>
+                </form>
               </>
             )}
           </CardContent>
