@@ -22,6 +22,8 @@ import {
   Loader2,
   AlertTriangle,
   CheckCircle2,
+  Search,
+  X,
 } from "lucide-react"
 import {
   initializeStorage,
@@ -74,6 +76,8 @@ export default function Dashboard() {
 
   // Hook para obtener nombres de usuarios actualizados
   const { user1Name, user2Name } = useUserNames()
+
+  const [searchTerm, setSearchTerm] = useState("")
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser")
@@ -970,6 +974,42 @@ export default function Dashboard() {
                 </div>
               </div>
             </CardHeader>
+
+            <div className="p-4 sm:p-6 bg-slate-50 border-b dark:bg-gray-700">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-gray-400" />
+                <Input
+                  type="text"
+                  placeholder="Buscar productos... (ej: 'car bian' para Carpano Bianco)"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 pr-10 bg-white border-slate-300 focus:border-[#E47C00] focus:ring-[#E47C00] dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm("")}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-gray-400 dark:hover:text-gray-200"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              {searchTerm && (
+                <p className="text-xs text-slate-600 mt-2 dark:text-gray-400">
+                  {
+                    currentControl.stock_items.filter((item) => {
+                      const searchLower = searchTerm.toLowerCase().replace(/\s+/g, "")
+                      const codigoMatch = item.codigo.toLowerCase().includes(searchTerm.toLowerCase())
+                      const denominacionNormalized = item.denominacion.toLowerCase().replace(/\s+/g, "")
+                      const denominacionMatch = denominacionNormalized.includes(searchLower)
+                      return codigoMatch || denominacionMatch
+                    }).length
+                  }{" "}
+                  producto(s) encontrado(s)
+                </p>
+              )}
+            </div>
+
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[800px]">
@@ -999,108 +1039,117 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {currentControl.stock_items.map((item) => {
-                      const calculatedResult = calculateResult(item)
+                    {currentControl.stock_items
+                      .filter((item) => {
+                        if (!searchTerm) return true
+                        const searchLower = searchTerm.toLowerCase().replace(/\s+/g, "")
+                        const codigoMatch = item.codigo.toLowerCase().includes(searchTerm.toLowerCase())
+                        const denominacionNormalized = item.denominacion.toLowerCase().replace(/\s+/g, "")
+                        const denominacionMatch = denominacionNormalized.includes(searchLower)
+                        return codigoMatch || denominacionMatch
+                      })
+                      .map((item) => {
+                        const calculatedResult = calculateResult(item)
 
-                      // Verificar si hay inconsistencia con cualquier usuario
-                      const hasUser1Inconsistency =
-                        item.user1_value !== undefined &&
-                        item.user1_value !== null &&
-                        item.user1_value !== item.stock_sistema
+                        // Verificar si hay inconsistencia con cualquier usuario
+                        const hasUser1Inconsistency =
+                          item.user1_value !== undefined &&
+                          item.user1_value !== null &&
+                          item.user1_value !== item.stock_sistema
 
-                      const hasUser2Inconsistency =
-                        item.user2_value !== undefined &&
-                        item.user2_value !== null &&
-                        item.user2_value !== item.stock_sistema
+                        const hasUser2Inconsistency =
+                          item.user2_value !== undefined &&
+                          item.user2_value !== null &&
+                          item.user2_value !== item.stock_sistema
 
-                      const hasAnyInconsistency = hasUser1Inconsistency || hasUser2Inconsistency
+                        const hasAnyInconsistency = hasUser1Inconsistency || hasUser2Inconsistency
 
-                      return (
-                        <tr
-                          key={item.id}
-                          className={`border-b transition-colors ${
-                            hasAnyInconsistency
-                              ? "bg-red-50 hover:bg-red-100 border-l-4 border-l-red-400 dark:bg-red-600 dark:hover:bg-red-700"
-                              : "hover:bg-orange-50 dark:hover:bg-red-600"
-                          }`}
-                        >
-                          <td className="p-2 sm:p-4 font-mono font-semibold text-[#E47C00] text-xs sm:text-base dark:text-white">
-                            {item.codigo}
-                          </td>
-                          <td className="p-2 sm:p-4 font-medium text-slate-800 text-xs sm:text-sm dark:text-white">
-                            {item.denominacion}
-                          </td>
-                          <td className="p-2 sm:p-4 text-center">
-                            <Badge
-                              variant="outline"
-                              className="font-semibold border-[#E47C00] text-[#E47C00] text-xs dark:bg-red-500 dark:text-white dark:border-red-700"
-                            >
-                              {item.stock_sistema}
-                            </Badge>
-                          </td>
-                          <td className="p-2 sm:p-4 text-center">
-                            {item.user1_value !== undefined && item.user1_value !== null ? (
-                              <Badge
-                                className={`text-xs font-semibold ${
-                                  item.user1_value !== item.stock_sistema
-                                    ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-600 dark:text-white dark:border-red-700"
-                                    : "bg-[#E47C00]/10 text-[#E47C00] border-[#E47C00]/30 dark:bg-red-500 dark:text-white dark:border-red-700"
-                                }`}
-                              >
-                                {item.user1_value}
-                              </Badge>
-                            ) : (
-                              <span className="text-slate-400 text-xs dark:text-gray-500">Pendiente</span>
-                            )}
-                          </td>
-                          <td className="p-2 sm:p-4 text-center">
-                            {item.user2_value !== undefined && item.user2_value !== null ? (
-                              <Badge
-                                className={`text-xs font-semibold ${
-                                  item.user2_value !== item.stock_sistema
-                                    ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-600 dark:text-white dark:border-red-700"
-                                    : "bg-amber-100 text-amber-800 border-amber-300 dark:bg-red-500 dark:text-white dark:border-red-700"
-                                }`}
-                              >
-                                {item.user2_value}
-                              </Badge>
-                            ) : (
-                              <span className="text-slate-400 text-xs dark:text-gray-500">Pendiente</span>
-                            )}
-                          </td>
-                          <td className="p-2 sm:p-4 text-center">
-                            <Input
-                              type="number"
-                              min="0"
-                              value={localInputs[item.id] || ""}
-                              onChange={(e) => handleCorrectionChange(item.id, e.target.value)}
-                              className="w-16 sm:w-24 text-center border-orange-300 focus:border-[#E47C00] text-xs sm:text-sm h-8 sm:h-10 dark:border-gray-500 dark:focus:border-red-500"
-                              placeholder="0"
-                            />
-                            {saveTimeouts[item.id] && (
-                              <div className="text-xs text-blue-600 mt-1 dark:text-blue-400">Guardando...</div>
-                            )}
-                          </td>
-                          <td className="p-2 sm:p-4 text-center">
-                            {calculatedResult !== undefined && calculatedResult !== null && (
+                        return (
+                          <tr
+                            key={item.id}
+                            className={`border-b transition-colors ${
+                              hasAnyInconsistency
+                                ? "bg-red-50 hover:bg-red-100 border-l-4 border-l-red-400 dark:bg-red-600 dark:hover:bg-red-700"
+                                : "hover:bg-orange-50 dark:hover:bg-red-600"
+                            }`}
+                          >
+                            <td className="p-2 sm:p-4 font-mono font-semibold text-[#E47C00] text-xs sm:text-base dark:text-white">
+                              {item.codigo}
+                            </td>
+                            <td className="p-2 sm:p-4 font-medium text-slate-800 text-xs sm:text-sm dark:text-white">
+                              {item.denominacion}
+                            </td>
+                            <td className="p-2 sm:p-4 text-center">
                               <Badge
                                 variant="outline"
-                                className={`text-xs font-bold ${
-                                  calculatedResult > 0
-                                    ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-600 dark:text-white dark:border-green-700"
-                                    : calculatedResult < 0
-                                      ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-600 dark:text-white dark:border-red-700"
-                                      : "bg-slate-100 text-slate-800 border-slate-300 dark:bg-gray-600 dark:text-white dark:border-gray-700"
-                                }`}
+                                className="font-semibold border-[#E47C00] text-[#E47C00] text-xs dark:bg-red-500 dark:text-white dark:border-red-700"
                               >
-                                {calculatedResult > 0 ? "+" : ""}
-                                {calculatedResult}
+                                {item.stock_sistema}
                               </Badge>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
+                            </td>
+                            <td className="p-2 sm:p-4 text-center">
+                              {item.user1_value !== undefined && item.user1_value !== null ? (
+                                <Badge
+                                  className={`text-xs font-semibold ${
+                                    item.user1_value !== item.stock_sistema
+                                      ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-600 dark:text-white dark:border-red-700"
+                                      : "bg-[#E47C00]/10 text-[#E47C00] border-[#E47C00]/30 dark:bg-red-500 dark:text-white dark:border-red-700"
+                                  }`}
+                                >
+                                  {item.user1_value}
+                                </Badge>
+                              ) : (
+                                <span className="text-slate-400 text-xs dark:text-gray-500">Pendiente</span>
+                              )}
+                            </td>
+                            <td className="p-2 sm:p-4 text-center">
+                              {item.user2_value !== undefined && item.user2_value !== null ? (
+                                <Badge
+                                  className={`text-xs font-semibold ${
+                                    item.user2_value !== item.stock_sistema
+                                      ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-600 dark:text-white dark:border-red-700"
+                                      : "bg-amber-100 text-amber-800 border-amber-300 dark:bg-red-500 dark:text-white dark:border-red-700"
+                                  }`}
+                                >
+                                  {item.user2_value}
+                                </Badge>
+                              ) : (
+                                <span className="text-slate-400 text-xs dark:text-gray-500">Pendiente</span>
+                              )}
+                            </td>
+                            <td className="p-2 sm:p-4 text-center">
+                              <Input
+                                type="number"
+                                min="0"
+                                value={localInputs[item.id] || ""}
+                                onChange={(e) => handleCorrectionChange(item.id, e.target.value)}
+                                className="w-16 sm:w-24 text-center border-orange-300 focus:border-[#E47C00] text-xs sm:text-sm h-8 sm:h-10 dark:border-gray-500 dark:focus:border-red-500"
+                                placeholder="0"
+                              />
+                              {saveTimeouts[item.id] && (
+                                <div className="text-xs text-blue-600 mt-1 dark:text-blue-400">Guardando...</div>
+                              )}
+                            </td>
+                            <td className="p-2 sm:p-4 text-center">
+                              {calculatedResult !== undefined && calculatedResult !== null && (
+                                <Badge
+                                  variant="outline"
+                                  className={`text-xs font-bold ${
+                                    calculatedResult > 0
+                                      ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-600 dark:text-white dark:border-green-700"
+                                      : calculatedResult < 0
+                                        ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-600 dark:text-white dark:border-red-700"
+                                        : "bg-slate-100 text-slate-800 border-slate-300 dark:bg-gray-600 dark:text-white dark:border-gray-700"
+                                  }`}
+                                >
+                                  {calculatedResult > 0 ? "+" : ""}
+                                  {calculatedResult}
+                                </Badge>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
                   </tbody>
                 </table>
               </div>

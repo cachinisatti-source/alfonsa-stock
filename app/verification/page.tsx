@@ -20,6 +20,7 @@ import {
   Edit3,
   X,
   AlertTriangle,
+  Search,
 } from "lucide-react"
 import { loadControls, updateItem, type StockControlWithItems, getCurrentBranchInfo } from "@/lib/storage"
 import { useSearchParams } from "next/navigation"
@@ -59,6 +60,7 @@ export default function VerificationPage() {
   const [control, setControl] = useState<StockControl | null>(null)
   const [parsedItems, setParsedItems] = useState<StockItem[]>([])
   const [userRole, setUserRole] = useState<"leader" | "user">("user")
+  const [searchTerm, setSearchTerm] = useState("") // Added search term state
 
   const openProductModal = (item: any) => {
     setSelectedProductModal(item)
@@ -241,6 +243,20 @@ export default function VerificationPage() {
       setControl({ ...control, verified: true })
     }
   }
+
+  const filteredStockItems =
+    selectedControl?.stock_items.filter((item) => {
+      if (!searchTerm.trim()) return true
+
+      const search = searchTerm.toLowerCase().trim()
+      const denominacion = item.denominacion?.toLowerCase() || ""
+
+      // Split search term into words to allow flexible matching
+      const searchWords = search.split(/\s+/)
+
+      // Check if all search words are found in the product name
+      return searchWords.every((word) => denominacion.includes(word))
+    }) || []
 
   if (!currentUser) {
     return (
@@ -512,6 +528,35 @@ export default function VerificationPage() {
               </CardHeader>
             </Card>
 
+            <Card className="shadow-md border-0">
+              <CardContent className="p-4 sm:p-6">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Input
+                    type="text"
+                    placeholder="Buscar productos... (ej: car bian)"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10 pr-10 h-10 sm:h-12 text-sm sm:text-base border-orange-200 focus:border-[#E47C00] focus:ring-[#E47C00]"
+                  />
+                  {searchTerm && (
+                    <button
+                      onClick={() => setSearchTerm("")}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                {searchTerm && (
+                  <p className="mt-2 text-xs sm:text-sm text-slate-600">
+                    {filteredStockItems.length} producto{filteredStockItems.length !== 1 ? "s" : ""} encontrado
+                    {filteredStockItems.length !== 1 ? "s" : ""}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
             <Card className="shadow-lg border-0">
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -524,119 +569,127 @@ export default function VerificationPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedControl.stock_items.map((item) => {
-                        const userValue = currentUser?.role === "user1" ? item.user1_value : item.user2_value
-                        const hasValue = userValue !== undefined && userValue !== null
-                        const isEditing = editingItems.hasOwnProperty(item.id)
+                      {filteredStockItems.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="p-8 text-center text-slate-500">
+                            {searchTerm ? "No se encontraron productos" : "No hay productos disponibles"}
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredStockItems.map((item) => {
+                          const userValue = currentUser?.role === "user1" ? item.user1_value : item.user2_value
+                          const hasValue = userValue !== undefined && userValue !== null
+                          const isEditing = editingItems.hasOwnProperty(item.id)
 
-                        // Verificar inconsistencia del usuario actual
-                        const hasInconsistency = hasValue && userValue !== item.stock_sistema
+                          // Verificar inconsistencia del usuario actual
+                          const hasInconsistency = hasValue && userValue !== item.stock_sistema
 
-                        return (
-                          <tr
-                            key={item.id}
-                            className={`border-b transition-colors ${
-                              hasValue && !isEditing
-                                ? hasInconsistency
-                                  ? "bg-red-50 border-l-4 border-l-red-400 hover:bg-red-100"
-                                  : "bg-green-50 hover:bg-green-100"
-                                : "hover:bg-orange-50"
-                            }`}
-                          >
-                            <td className="p-3 sm:p-4 md:p-4 font-medium text-slate-800 text-xs sm:text-sm">
-                              <div
-                                className="truncate max-w-[140px] sm:max-w-none cursor-pointer hover:text-[#E47C00] transition-colors sm:cursor-default sm:hover:text-slate-800"
-                                title={item.denominacion}
-                                onClick={() => (window.innerWidth < 640 ? openProductModal(item) : undefined)}
-                              >
-                                {item.denominacion}
-                              </div>
-                            </td>
-                            <td className="p-3 sm:p-4 md:p-4 text-center">
-                              {isEditing ? (
-                                // Modo edición
-                                <div className="flex items-center justify-center space-x-1">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    placeholder="0"
-                                    value={editingItems[item.id] || ""}
-                                    onChange={(e) => handleInputChange(item.id, e.target.value)}
-                                    className="w-16 sm:w-20 text-center text-xs sm:text-sm font-semibold border-orange-300 focus:border-[#E47C00] h-7 sm:h-8"
-                                    autoFocus
-                                  />
-                                  <Button
-                                    onClick={() => saveVerification(item.id)}
-                                    disabled={!editingItems[item.id] || saving === item.id}
-                                    size="sm"
-                                    className="bg-[#E47C00] hover:bg-orange-600 p-1.5 h-7 sm:h-8 w-7 sm:w-8"
-                                  >
-                                    {saving === item.id ? (
-                                      <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
-                                    ) : (
-                                      <Save className="h-3 w-3 sm:h-4 sm:w-4" />
-                                    )}
-                                  </Button>
-                                  <Button
-                                    onClick={() => cancelEditing(item.id)}
-                                    size="sm"
-                                    variant="outline"
-                                    className="p-1.5 h-7 sm:h-8 w-7 sm:w-8 border-gray-300"
-                                  >
-                                    <X className="h-3 w-3 sm:h-4 sm:w-4" />
-                                  </Button>
-                                </div>
-                              ) : hasValue ? (
-                                // Modo mostrar valor guardado
-                                <div className="flex items-center justify-center space-x-2">
-                                  <Badge className="bg-green-100 text-green-800 border-green-300 px-2 py-1 text-xs sm:text-sm font-semibold">
-                                    {userValue}
-                                  </Badge>
-                                  <Button
-                                    onClick={() => startEditing(item.id, userValue)}
-                                    size="sm"
-                                    variant="outline"
-                                    className="p-1.5 h-7 sm:h-8 w-7 sm:w-8 border-blue-300 text-blue-600 hover:bg-blue-50"
-                                  >
-                                    <Edit3 className="h-3 w-3 sm:h-4 sm:w-4" />
-                                  </Button>
-                                </div>
-                              ) : (
-                                // Modo inicial - sin valor
-                                <Button
-                                  onClick={() => startEditing(item.id)}
-                                  variant="outline"
-                                  size="sm"
-                                  className="border-[#E47C00] text-[#E47C00] hover:bg-[#E47C00]/10"
+                          return (
+                            <tr
+                              key={item.id}
+                              className={`border-b transition-colors ${
+                                hasValue && !isEditing
+                                  ? hasInconsistency
+                                    ? "bg-red-50 border-l-4 border-l-red-400 hover:bg-red-100"
+                                    : "bg-green-50 hover:bg-green-100"
+                                  : "hover:bg-orange-50"
+                              }`}
+                            >
+                              <td className="p-3 sm:p-4 md:p-4 font-medium text-slate-800 text-xs sm:text-sm">
+                                <div
+                                  className="truncate max-w-[140px] sm:max-w-none cursor-pointer hover:text-[#E47C00] transition-colors sm:cursor-default sm:hover:text-slate-800"
+                                  title={item.denominacion}
+                                  onClick={() => (window.innerWidth < 640 ? openProductModal(item) : undefined)}
                                 >
-                                  ?
-                                </Button>
-                              )}
-                            </td>
-                            <td className="p-3 sm:p-4 md:p-4 text-center">
-                              {hasValue && !isEditing ? (
-                                <div className="flex items-center justify-center space-x-1">
-                                  <div className="p-1 sm:p-1.5 bg-green-100 rounded-full">
-                                    <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
-                                  </div>
-                                  {hasInconsistency && (
-                                    <div
-                                      className="p-1 bg-red-100 rounded-full"
-                                      title="Diferencia detectada con el stock del sistema"
+                                  {item.denominacion}
+                                </div>
+                              </td>
+                              <td className="p-3 sm:p-4 md:p-4 text-center">
+                                {isEditing ? (
+                                  // Modo edición
+                                  <div className="flex items-center justify-center space-x-1">
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      placeholder="0"
+                                      value={editingItems[item.id] || ""}
+                                      onChange={(e) => handleInputChange(item.id, e.target.value)}
+                                      className="w-16 sm:w-20 text-center text-xs sm:text-sm font-semibold border-orange-300 focus:border-[#E47C00] h-7 sm:h-8"
+                                      autoFocus
+                                    />
+                                    <Button
+                                      onClick={() => saveVerification(item.id)}
+                                      disabled={!editingItems[item.id] || saving === item.id}
+                                      size="sm"
+                                      className="bg-[#E47C00] hover:bg-orange-600 p-1.5 h-7 sm:h-8 w-7 sm:w-8"
                                     >
-                                      <AlertTriangle className="h-3 w-3 text-red-600" />
+                                      {saving === item.id ? (
+                                        <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
+                                      ) : (
+                                        <Save className="h-3 w-3 sm:h-4 sm:w-4" />
+                                      )}
+                                    </Button>
+                                    <Button
+                                      onClick={() => cancelEditing(item.id)}
+                                      size="sm"
+                                      variant="outline"
+                                      className="p-1.5 h-7 sm:h-8 w-7 sm:w-8 border-gray-300"
+                                    >
+                                      <X className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    </Button>
+                                  </div>
+                                ) : hasValue ? (
+                                  // Modo mostrar valor guardado
+                                  <div className="flex items-center justify-center space-x-2">
+                                    <Badge className="bg-green-100 text-green-800 border-green-300 px-2 py-1 text-xs sm:text-sm font-semibold">
+                                      {userValue}
+                                    </Badge>
+                                    <Button
+                                      onClick={() => startEditing(item.id, userValue)}
+                                      size="sm"
+                                      variant="outline"
+                                      className="p-1.5 h-7 sm:h-8 w-7 sm:w-8 border-blue-300 text-blue-600 hover:bg-blue-50"
+                                    >
+                                      <Edit3 className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  // Modo inicial - sin valor
+                                  <Button
+                                    onClick={() => startEditing(item.id)}
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-[#E47C00] text-[#E47C00] hover:bg-[#E47C00]/10"
+                                  >
+                                    ?
+                                  </Button>
+                                )}
+                              </td>
+                              <td className="p-3 sm:p-4 md:p-4 text-center">
+                                {hasValue && !isEditing ? (
+                                  <div className="flex items-center justify-center space-x-1">
+                                    <div className="p-1 sm:p-1.5 bg-green-100 rounded-full">
+                                      <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
                                     </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-center">
-                                  <div className="h-4 w-4 sm:h-5 sm:w-5 border-2 border-orange-300 rounded-full" />
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        )
-                      })}
+                                    {hasInconsistency && (
+                                      <div
+                                        className="p-1 bg-red-100 rounded-full"
+                                        title="Diferencia detectada con el stock del sistema"
+                                      >
+                                        <AlertTriangle className="h-3 w-3 text-red-600" />
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-center">
+                                    <div className="h-4 w-4 sm:h-5 sm:w-5 border-2 border-orange-300 rounded-full" />
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>
